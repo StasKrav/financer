@@ -19,11 +19,6 @@
     const txAmount = document.getElementById('txAmount');
     const addBtn = document.getElementById('addBtn');
 
-    const menuCategoryList = document.getElementById('menuCategoryList');
-    const menuNewCategoryName = document.getElementById('menuNewCategoryName');
-    const menuNewCategoryType = document.getElementById('menuNewCategoryType');
-    const menuAddCategoryBtn = document.getElementById('menuAddCategoryBtn');
-
     const totalIncomeEl = document.getElementById('totalIncome');
     const totalExpenseEl = document.getElementById('totalExpense');
     const balanceEl = document.getElementById('balance');
@@ -46,6 +41,15 @@
     const dateFrom = document.getElementById('dateFrom');
     const dateTo = document.getElementById('dateTo');
     const applyCustomPeriod = document.getElementById('applyCustomPeriod');
+
+    // Categories modal
+    const categoriesModal = document.getElementById('categoriesModal');
+    const categoriesModalClose = document.getElementById('categoriesModalClose');
+    const modalCategoryList = document.getElementById('modalCategoryList');
+    const modalNewCategoryName = document.getElementById('modalNewCategoryName');
+    const modalNewCategoryType = document.getElementById('modalNewCategoryType');
+    const modalAddCategoryBtn = document.getElementById('modalAddCategoryBtn');
+    const menuCategoriesBtn = document.getElementById('menuCategoriesBtn');
 
     // File operations
     const menuSelectFolderBtn = document.getElementById('menuSelectFolderBtn');
@@ -145,9 +149,127 @@
     menuCloseBtn.addEventListener('click', () => toggleMenu(false));
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && dropdownMenu.classList.contains('active')) {
-            toggleMenu(false);
+        if (e.key === 'Escape') {
+            if (categoriesModal.classList.contains('active')) {
+                closeCategoriesModal();
+            }
+            if (dropdownMenu.classList.contains('active')) {
+                toggleMenu(false);
+            }
         }
+    });
+
+    // === Categories Modal ===
+    function openCategoriesModal() {
+        categoriesModal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        renderModalCategories();
+    }
+
+    function closeCategoriesModal() {
+        categoriesModal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    categoriesModalClose.addEventListener('click', closeCategoriesModal);
+    categoriesModal.addEventListener('click', function(e) {
+        if (e.target === this) closeCategoriesModal();
+    });
+
+    menuCategoriesBtn.addEventListener('click', function() {
+        toggleMenu(false);
+        openCategoriesModal();
+    });
+
+    function renderModalCategories() {
+        if (categories.length === 0) {
+            modalCategoryList.innerHTML = '<div class="menu-empty">Нет категорий</div>';
+            return;
+        }
+
+        let html = '';
+        categories.forEach(cat => {
+            const typeLabel = cat.type === 'income' ? 'Доход' : 'Расход';
+            html += `
+                <div class="modal-category-item">
+                    <div class="cat-info">
+                        <span class="cat-name">${cat.name}</span>
+                        <span class="cat-type-badge">${typeLabel}</span>
+                    </div>
+                    <div class="cat-actions">
+                        <button class="modal-edit-btn" data-id="${cat.id}">✎</button>
+                        <button class="modal-delete-btn" data-id="${cat.id}">×</button>
+                    </div>
+                </div>
+            `;
+        });
+        modalCategoryList.innerHTML = html;
+
+        modalCategoryList.querySelectorAll('.modal-edit-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const id = this.getAttribute('data-id');
+                const cat = categories.find(c => c.id === id);
+                if (cat) {
+                    const newName = prompt('Редактировать категорию:', cat.name);
+                    if (newName !== null && newName.trim() !== '') {
+                        cat.name = newName.trim();
+                        renderModalCategories();
+                        updateCategorySelects();
+                        saveState();
+                    }
+                }
+            });
+        });
+
+        modalCategoryList.querySelectorAll('.modal-delete-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const id = this.getAttribute('data-id');
+                if (confirm('Удалить категорию? Операции с этой категорией останутся без категории.')) {
+                    categories = categories.filter(c => c.id !== id);
+                    transactions.forEach(t => {
+                        if (t.categoryId === id) {
+                            t.categoryId = '';
+                        }
+                    });
+                    renderModalCategories();
+                    updateCategorySelects();
+                    renderTransactions();
+                    saveState();
+                }
+            });
+        });
+    }
+
+    function addCategoryFromModal() {
+        const name = modalNewCategoryName.value.trim();
+        const type = modalNewCategoryType.value;
+
+        if (!name) {
+            alert('Введите название категории');
+            return;
+        }
+
+        if (categories.some(c => c.name.toLowerCase() === name.toLowerCase() && c.type === type)) {
+            alert('Такая категория уже существует');
+            return;
+        }
+
+        categories.push({
+            id: generateId(),
+            name: name,
+            type: type
+        });
+
+        modalNewCategoryName.value = '';
+        renderModalCategories();
+        updateCategorySelects();
+        renderTransactions();
+        saveState();
+    }
+
+    modalAddCategoryBtn.addEventListener('click', addCategoryFromModal);
+    modalNewCategoryName.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') addCategoryFromModal();
     });
 
     // === Save/Load ===
@@ -160,7 +282,6 @@
             localStorage.setItem('fin_custom_to', customDateTo || '');
         } catch (_) {}
         
-        // Auto-save to file if folder selected
         if (folderHandle) {
             saveToFile();
         }
@@ -205,7 +326,6 @@
             const data = getDataForExport();
             const json = JSON.stringify(data, null, 2);
             
-            // Create or get file
             if (!fileHandle) {
                 fileHandle = await folderHandle.getFileHandle('finanser_data.json', { create: true });
             }
@@ -231,9 +351,8 @@
             }
             
             folderHandle = await window.showDirectoryPicker();
-            fileHandle = null; // Reset file handle
+            fileHandle = null;
             
-            // Try to load existing file
             try {
                 fileHandle = await folderHandle.getFileHandle('finanser_data.json');
                 const file = await fileHandle.getFile();
@@ -247,7 +366,6 @@
                     saveState();
                 }
             } catch (e) {
-                // File doesn't exist, will be created on save
                 folderStatus.textContent = 'Папка выбрана, файл будет создан при первом сохранении';
                 folderStatus.className = 'folder-status active';
             }
@@ -255,7 +373,6 @@
             folderStatus.textContent = `Папка выбрана: ${folderHandle.name}`;
             folderStatus.className = 'folder-status active';
             
-            // Save current data to file
             await saveToFile();
         } catch (error) {
             if (error.name !== 'AbortError') {
@@ -307,62 +424,6 @@
     }
 
     // === Render functions ===
-    function renderMenuCategories() {
-        if (categories.length === 0) {
-            menuCategoryList.innerHTML = '<div class="menu-empty">Нет категорий</div>';
-            return;
-        }
-
-        let html = '';
-        categories.forEach(cat => {
-            const typeLabel = cat.type === 'income' ? 'Доход' : 'Расход';
-            html += `
-                <div class="menu-category-item">
-                    <div class="cat-info">
-                        <span class="cat-name">${cat.name}</span>
-                        <span class="cat-type-badge">${typeLabel}</span>
-                    </div>
-                    <div class="cat-actions">
-                        <button class="edit-btn" data-id="${cat.id}">✎</button>
-                        <button class="delete-btn" data-id="${cat.id}">×</button>
-                    </div>
-                </div>
-            `;
-        });
-        menuCategoryList.innerHTML = html;
-
-        menuCategoryList.querySelectorAll('.edit-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const id = this.getAttribute('data-id');
-                const cat = categories.find(c => c.id === id);
-                if (cat) {
-                    const newName = prompt('Редактировать категорию:', cat.name);
-                    if (newName !== null && newName.trim() !== '') {
-                        cat.name = newName.trim();
-                        renderAll();
-                        saveState();
-                    }
-                }
-            });
-        });
-
-        menuCategoryList.querySelectorAll('.delete-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const id = this.getAttribute('data-id');
-                if (confirm('Удалить категорию? Операции с этой категорией останутся без категории.')) {
-                    categories = categories.filter(c => c.id !== id);
-                    transactions.forEach(t => {
-                        if (t.categoryId === id) {
-                            t.categoryId = '';
-                        }
-                    });
-                    renderAll();
-                    saveState();
-                }
-            });
-        });
-    }
-
     function updateCategorySelects() {
         const currentType = txType.value;
         const available = getCategoriesByType(currentType);
@@ -528,9 +589,11 @@
     }
 
     function renderAll() {
-        renderMenuCategories();
         updateCategorySelects();
         renderTransactions();
+        if (categoriesModal.classList.contains('active')) {
+            renderModalCategories();
+        }
     }
 
     // === Actions ===
@@ -564,31 +627,6 @@
         });
 
         txAmount.value = '';
-        renderAll();
-        saveState();
-    }
-
-    function addCategory() {
-        const name = menuNewCategoryName.value.trim();
-        const type = menuNewCategoryType.value;
-
-        if (!name) {
-            alert('Введите название категории');
-            return;
-        }
-
-        if (categories.some(c => c.name.toLowerCase() === name.toLowerCase() && c.type === type)) {
-            alert('Такая категория уже существует');
-            return;
-        }
-
-        categories.push({
-            id: generateId(),
-            name: name,
-            type: type
-        });
-
-        menuNewCategoryName.value = '';
         renderAll();
         saveState();
     }
@@ -699,11 +737,6 @@
             if (e.key === 'Enter') addTransaction();
         });
         txType.addEventListener('change', updateCategorySelects);
-
-        menuAddCategoryBtn.addEventListener('click', addCategory);
-        menuNewCategoryName.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') addCategory();
-        });
 
         filterType.addEventListener('change', renderTransactions);
         filterCategory.addEventListener('change', renderTransactions);

@@ -32,19 +32,9 @@
             <button class="menu-close" id="menuCloseBtn">✕</button>
         </div>
 
-        <!-- Categories Section -->
+        <!-- Menu Items -->
         <div class="menu-section">
-            <div class="menu-section-title">Управление категориями</div>
-            <div id="menuCategoryList" class="menu-category-list"></div>
-
-            <div class="add-category-form">
-                <input type="text" id="menuNewCategoryName" placeholder="Название" />
-                <select id="menuNewCategoryType">
-                    <option value="income">Доход</option>
-                    <option value="expense">Расход</option>
-                </select>
-                <button class="btn" id="menuAddCategoryBtn">Добавить</button>
-            </div>
+            <button class="menu-item-btn" id="menuCategoriesBtn">Управление категориями</button>
         </div>
 
         <!-- File Operations -->
@@ -61,6 +51,27 @@
         <div class="menu-section">
             <div class="menu-section-title">Действия</div>
             <button class="menu-danger-btn" id="menuClearAllBtn">Очистить все операции</button>
+        </div>
+    </div>
+
+    <!-- Categories Modal -->
+    <div class="modal-overlay" id="categoriesModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Управление категориями</h2>
+                <button class="modal-close" id="categoriesModalClose">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalCategoryList" class="modal-category-list"></div>
+                <div class="add-category-form">
+                    <input type="text" id="modalNewCategoryName" placeholder="Название категории" />
+                    <select id="modalNewCategoryType">
+                        <option value="income">Доход</option>
+                        <option value="expense">Расход</option>
+                    </select>
+                    <button class="btn" id="modalAddCategoryBtn">Добавить</button>
+                </div>
+            </div>
         </div>
     </div>
 
