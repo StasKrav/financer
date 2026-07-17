@@ -7,6 +7,7 @@
     let customDateTo = null;
     let folderHandle = null;
     let fileHandle = null;
+    let editingTransactionId = null;
 
     // === DOM refs ===
     const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -50,6 +51,15 @@
     const modalNewCategoryType = document.getElementById('modalNewCategoryType');
     const modalAddCategoryBtn = document.getElementById('modalAddCategoryBtn');
     const menuCategoriesBtn = document.getElementById('menuCategoriesBtn');
+
+    // Edit popover
+    const editPopover = document.getElementById('editPopover');
+    const editPopoverClose = document.getElementById('editPopoverClose');
+    const editTxType = document.getElementById('editTxType');
+    const editTxCategory = document.getElementById('editTxCategory');
+    const editTxAmount = document.getElementById('editTxAmount');
+    const editTxDate = document.getElementById('editTxDate');
+    const editTxSaveBtn = document.getElementById('editTxSaveBtn');
 
     // File operations
     const menuSelectFolderBtn = document.getElementById('menuSelectFolderBtn');
@@ -152,6 +162,9 @@
         if (e.key === 'Escape') {
             if (categoriesModal.classList.contains('active')) {
                 closeCategoriesModal();
+            }
+            if (editPopover.classList.contains('active')) {
+                closeEditPopover();
             }
             if (dropdownMenu.classList.contains('active')) {
                 toggleMenu(false);
@@ -270,6 +283,119 @@
     modalAddCategoryBtn.addEventListener('click', addCategoryFromModal);
     modalNewCategoryName.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') addCategoryFromModal();
+    });
+
+    // === Edit Popover ===
+    function openEditPopover(txId) {
+        const tx = transactions.find(t => t.id === txId);
+        if (!tx) return;
+        
+        editingTransactionId = txId;
+        
+        // Fill form
+        editTxType.value = tx.type;
+        editTxAmount.value = tx.amount;
+        editTxDate.value = new Date(tx.date).toISOString().split('T')[0];
+        
+        // Update category select
+        const available = getCategoriesByType(tx.type);
+        editTxCategory.innerHTML = '';
+        if (available.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Нет категорий';
+            editTxCategory.appendChild(opt);
+        } else {
+            available.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.id;
+                opt.textContent = cat.name;
+                if (cat.id === tx.categoryId) opt.selected = true;
+                editTxCategory.appendChild(opt);
+            });
+        }
+        
+        // Show popover
+        editPopover.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        
+        // Focus amount field for quick editing
+        setTimeout(() => editTxAmount.focus(), 100);
+    }
+
+    function closeEditPopover() {
+        editPopover.classList.remove('active');
+        document.body.style.overflow = '';
+        editingTransactionId = null;
+    }
+
+    function saveEditedTransaction() {
+        if (!editingTransactionId) return;
+        
+        const type = editTxType.value;
+        const categoryId = editTxCategory.value;
+        const amount = parseFloat(editTxAmount.value);
+        const date = editTxDate.value;
+        
+        if (isNaN(amount) || amount <= 0) {
+            alert('Введите корректную сумму (больше 0)');
+            return;
+        }
+        
+        if (!categoryId) {
+            alert('Выберите категорию');
+            return;
+        }
+        
+        if (!date) {
+            alert('Выберите дату');
+            return;
+        }
+        
+        const tx = transactions.find(t => t.id === editingTransactionId);
+        if (tx) {
+            tx.type = type;
+            tx.categoryId = categoryId;
+            tx.amount = amount;
+            tx.date = new Date(date).toISOString();
+            renderAll();
+            saveState();
+            closeEditPopover();
+        }
+    }
+
+    editPopoverClose.addEventListener('click', closeEditPopover);
+    editPopover.addEventListener('click', function(e) {
+        if (e.target === this) closeEditPopover();
+    });
+    editTxSaveBtn.addEventListener('click', saveEditedTransaction);
+
+    // Handle Enter key in edit form
+    editTxAmount.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') saveEditedTransaction();
+    });
+    editTxDate.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') saveEditedTransaction();
+    });
+
+    // Update categories in edit popover when type changes
+    editTxType.addEventListener('change', function() {
+        const type = this.value;
+        const available = getCategoriesByType(type);
+        editTxCategory.innerHTML = '';
+        if (available.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Нет категорий';
+            editTxCategory.appendChild(opt);
+        } else {
+            available.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.id;
+                opt.textContent = cat.name;
+                editTxCategory.appendChild(opt);
+            });
+        }
     });
 
     // === Save/Load ===
@@ -481,7 +607,7 @@
     function renderTransactions() {
         const filtered = getFilteredTransactions();
         filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
-
+    
         if (filtered.length === 0) {
             transactionListEl.innerHTML = '<div class="empty-state">Нет операций</div>';
         } else {
@@ -493,13 +619,13 @@
                 const date = new Date(tx.date);
                 const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
                 html += `
-                    <div class="transaction-item">
+                    <div class="transaction-item" data-id="${tx.id}">
                         <div class="tx-info">
                             <span class="tx-category">${catName}</span>
                             <span class="tx-type">${typeLabel}</span>
                             <span class="tx-date">${dateStr}</span>
                         </div>
-                        <div class="flex">
+                        <div class="tx-right">
                             <span class="tx-amount ${amountClass}">${tx.amount.toFixed(2)}</span>
                             <button class="tx-delete" data-id="${tx.id}">×</button>
                         </div>
@@ -507,9 +633,11 @@
                 `;
             });
             transactionListEl.innerHTML = html;
-
+    
+            // Delete events
             transactionListEl.querySelectorAll('.tx-delete').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
                     const id = this.getAttribute('data-id');
                     if (confirm('Удалить операцию?')) {
                         transactions = transactions.filter(t => t.id !== id);
@@ -518,8 +646,16 @@
                     }
                 });
             });
+    
+            // Double-click to edit
+            transactionListEl.querySelectorAll('.transaction-item').forEach(item => {
+                item.addEventListener('dblclick', function() {
+                    const id = this.getAttribute('data-id');
+                    openEditPopover(id);
+                });
+            });
         }
-
+    
         updateSummary(filtered);
     }
 
