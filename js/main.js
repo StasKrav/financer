@@ -848,34 +848,34 @@
         saveState();
     }
 
-    function loadExample() {
-        categories = [
-            { id: 'cat1', name: 'Зарплата', type: 'income' },
-            { id: 'cat2', name: 'Фриланс', type: 'income' },
-            { id: 'cat3', name: 'Продукты', type: 'expense' },
-            { id: 'cat4', name: 'Транспорт', type: 'expense' },
-            { id: 'cat5', name: 'Кафе', type: 'expense' },
-            { id: 'cat6', name: 'Подписки', type: 'expense' },
-        ];
-
-        const now = new Date();
-        const month = now.getMonth();
-        const year = now.getFullYear();
-
-        transactions = [
-            { id: generateId(), type: 'income', categoryId: 'cat1', amount: 45000, date: new Date(year, month, 5).toISOString() },
-            { id: generateId(), type: 'income', categoryId: 'cat2', amount: 8000, date: new Date(year, month, 12).toISOString() },
-            { id: generateId(), type: 'expense', categoryId: 'cat3', amount: 3200, date: new Date(year, month, 3).toISOString() },
-            { id: generateId(), type: 'expense', categoryId: 'cat4', amount: 1200, date: new Date(year, month, 8).toISOString() },
-            { id: generateId(), type: 'expense', categoryId: 'cat5', amount: 950, date: new Date(year, month, 15).toISOString() },
-            { id: generateId(), type: 'expense', categoryId: 'cat6', amount: 650, date: new Date(year, month, 20).toISOString() },
-            { id: generateId(), type: 'income', categoryId: 'cat1', amount: 42000, date: new Date(year, month - 1, 5).toISOString() },
-            { id: generateId(), type: 'expense', categoryId: 'cat3', amount: 2800, date: new Date(year, month - 1, 10).toISOString() },
-        ];
-
-        renderAll();
-        saveState();
-    }
+//     function loadExample() {
+//         categories = [
+//             { id: 'cat1', name: 'Зарплата', type: 'income' },
+//             { id: 'cat2', name: 'Фриланс', type: 'income' },
+//             { id: 'cat3', name: 'Продукты', type: 'expense' },
+//             { id: 'cat4', name: 'Транспорт', type: 'expense' },
+//             { id: 'cat5', name: 'Кафе', type: 'expense' },
+//             { id: 'cat6', name: 'Подписки', type: 'expense' },
+//         ];
+// 
+//         const now = new Date();
+//         const month = now.getMonth();
+//         const year = now.getFullYear();
+// 
+//         transactions = [
+//             { id: generateId(), type: 'income', categoryId: 'cat1', amount: 45000, date: new Date(year, month, 5).toISOString() },
+//             { id: generateId(), type: 'income', categoryId: 'cat2', amount: 8000, date: new Date(year, month, 12).toISOString() },
+//             { id: generateId(), type: 'expense', categoryId: 'cat3', amount: 3200, date: new Date(year, month, 3).toISOString() },
+//             { id: generateId(), type: 'expense', categoryId: 'cat4', amount: 1200, date: new Date(year, month, 8).toISOString() },
+//             { id: generateId(), type: 'expense', categoryId: 'cat5', amount: 950, date: new Date(year, month, 15).toISOString() },
+//             { id: generateId(), type: 'expense', categoryId: 'cat6', amount: 650, date: new Date(year, month, 20).toISOString() },
+//             { id: generateId(), type: 'income', categoryId: 'cat1', amount: 42000, date: new Date(year, month - 1, 5).toISOString() },
+//             { id: generateId(), type: 'expense', categoryId: 'cat3', amount: 2800, date: new Date(year, month - 1, 10).toISOString() },
+//         ];
+// 
+//         renderAll();
+//         saveState();
+//     }
 
     function clearAllData() {
         if (transactions.length === 0) {
