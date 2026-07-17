@@ -22,9 +22,16 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0,1rem;
+    margin-bottom: 0.1rem;
     flex-wrap: wrap;
     gap: 1rem;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .header h1 {
@@ -33,6 +40,49 @@ body {
     letter-spacing: -0.5px;
     color: #0a0a0a;
 }
+
+.save-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9ca3af;
+    transition: background 0.3s;
+}
+
+.status-dot.saved {
+    background: #059669;
+}
+
+.status-dot.saving {
+    background: #d97706;
+    animation: pulse 1s infinite;
+}
+
+.status-dot.error {
+    background: #dc2626;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.status-text {
+    transition: color 0.3s;
+}
+
+.status-text.saved { color: #059669; }
+.status-text.saving { color: #d97706; }
+.status-text.error { color: #dc2626; }
 
 .header-actions {
     display: flex;
@@ -854,3 +904,16 @@ input:focus, select:focus {
 .mb-2 { margin-bottom: 0.5rem; }
 .text-sm { font-size: 0.85rem; }
 .text-muted { color: #6b7280; }
+
+/* File status styles */
+.folder-status.saving {
+    color: #d97706;
+}
+
+.folder-status.error {
+    color: #dc2626;
+}
+
+.folder-status.active {
+    color: #059669;
+}
