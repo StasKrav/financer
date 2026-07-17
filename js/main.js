@@ -5,6 +5,8 @@
     let currentPeriod = 'month';
     let customDateFrom = null;
     let customDateTo = null;
+    let folderHandle = null;
+    let fileHandle = null;
 
     // === DOM refs ===
     const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -45,6 +47,13 @@
     const dateTo = document.getElementById('dateTo');
     const applyCustomPeriod = document.getElementById('applyCustomPeriod');
 
+    // File operations
+    const menuSelectFolderBtn = document.getElementById('menuSelectFolderBtn');
+    const menuExportBtn = document.getElementById('menuExportBtn');
+    const menuImportBtn = document.getElementById('menuImportBtn');
+    const fileInput = document.getElementById('fileInput');
+    const folderStatus = document.getElementById('folderStatus');
+
     // === Helpers ===
     function generateId() {
         return Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -62,6 +71,15 @@
 
     function getCategoriesByType(type) {
         return categories.filter(c => c.type === type);
+    }
+
+    function getDataForExport() {
+        return {
+            version: '1.0',
+            exportedAt: new Date().toISOString(),
+            categories: categories,
+            transactions: transactions
+        };
     }
 
     // === Date helpers ===
@@ -141,6 +159,11 @@
             localStorage.setItem('fin_custom_from', customDateFrom || '');
             localStorage.setItem('fin_custom_to', customDateTo || '');
         } catch (_) {}
+        
+        // Auto-save to file if folder selected
+        if (folderHandle) {
+            saveToFile();
+        }
     }
 
     function loadState() {
@@ -172,6 +195,115 @@
                 customDateTo = savedTo;
             }
         } catch (_) {}
+    }
+
+    // === File operations ===
+    async function saveToFile() {
+        if (!folderHandle) return;
+        
+        try {
+            const data = getDataForExport();
+            const json = JSON.stringify(data, null, 2);
+            
+            // Create or get file
+            if (!fileHandle) {
+                fileHandle = await folderHandle.getFileHandle('finanser_data.json', { create: true });
+            }
+            
+            const writable = await fileHandle.createWritable();
+            await writable.write(json);
+            await writable.close();
+            
+            folderStatus.textContent = 'Данные сохранены в папке';
+            folderStatus.className = 'folder-status active';
+        } catch (error) {
+            console.error('Ошибка сохранения:', error);
+            folderStatus.textContent = 'Ошибка сохранения';
+            folderStatus.className = 'folder-status';
+        }
+    }
+
+    async function selectFolder() {
+        try {
+            if (!window.showDirectoryPicker) {
+                alert('Ваш браузер не поддерживает выбор папки. Используйте экспорт/импорт через файлы.');
+                return;
+            }
+            
+            folderHandle = await window.showDirectoryPicker();
+            fileHandle = null; // Reset file handle
+            
+            // Try to load existing file
+            try {
+                fileHandle = await folderHandle.getFileHandle('finanser_data.json');
+                const file = await fileHandle.getFile();
+                const text = await file.text();
+                const data = JSON.parse(text);
+                
+                if (data.categories && data.transactions) {
+                    categories = data.categories;
+                    transactions = data.transactions;
+                    renderAll();
+                    saveState();
+                }
+            } catch (e) {
+                // File doesn't exist, will be created on save
+                folderStatus.textContent = 'Папка выбрана, файл будет создан при первом сохранении';
+                folderStatus.className = 'folder-status active';
+            }
+            
+            folderStatus.textContent = `Папка выбрана: ${folderHandle.name}`;
+            folderStatus.className = 'folder-status active';
+            
+            // Save current data to file
+            await saveToFile();
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.error('Ошибка выбора папки:', error);
+                folderStatus.textContent = 'Ошибка выбора папки';
+                folderStatus.className = 'folder-status';
+            }
+        }
+    }
+
+    function exportData() {
+        const data = getDataForExport();
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `finanser_data_${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function importData(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                
+                if (!data.categories || !data.transactions) {
+                    alert('Неверный формат файла');
+                    return;
+                }
+                
+                if (confirm('Импортировать данные? Текущие данные будут заменены.')) {
+                    categories = data.categories;
+                    transactions = data.transactions;
+                    renderAll();
+                    saveState();
+                    alert('Данные успешно импортированы');
+                }
+            } catch (error) {
+                alert('Ошибка чтения файла');
+                console.error(error);
+            }
+        };
+        reader.readAsText(file);
     }
 
     // === Render functions ===
@@ -331,7 +463,6 @@
     }
 
     function updateSummary(filteredTransactions) {
-        // Update main summary (always visible)
         const totals = calcTotals(filteredTransactions);
         totalIncomeEl.textContent = totals.income.toFixed(2);
         totalExpenseEl.textContent = totals.expense.toFixed(2);
@@ -339,7 +470,6 @@
         balanceEl.textContent = balance.toFixed(2);
         balanceEl.style.color = balance >= 0 ? '#059669' : '#dc2626';
 
-        // Update detailed stats (in left column)
         const count = filteredTransactions.length;
         transactionCountEl.textContent = count;
 
@@ -366,7 +496,6 @@
         maxIncomeEl.textContent = maxIncome.toFixed(2);
         maxExpenseEl.textContent = maxExpense.toFixed(2);
 
-        // Top category
         if (filteredTransactions.length === 0) {
             topCategoryEl.textContent = '—';
             return;
@@ -588,6 +717,17 @@
 
         periodSelect.addEventListener('change', handlePeriodChange);
         applyCustomPeriod.addEventListener('click', applyCustomDates);
+
+        // File operations
+        menuSelectFolderBtn.addEventListener('click', selectFolder);
+        menuExportBtn.addEventListener('click', exportData);
+        menuImportBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', function(e) {
+            if (this.files && this.files[0]) {
+                importData(this.files[0]);
+                this.value = '';
+            }
+        });
     }
 
     init();

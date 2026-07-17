@@ -253,6 +253,36 @@ body {
     background: #2d3748;
 }
 
+/* File operations */
+.menu-file-btn {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: white;
+    color: #1a202c;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 0.5rem;
+}
+
+.menu-file-btn:hover {
+    background: #f3f4f6;
+}
+
+.folder-status {
+    font-size: 0.85rem;
+    color: #6b7280;
+    padding: 0.3rem 0;
+    margin-bottom: 0.5rem;
+}
+
+.folder-status.active {
+    color: #059669;
+}
+
 .menu-danger-btn {
     width: 100%;
     padding: 0.6rem;
