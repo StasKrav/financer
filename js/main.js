@@ -205,8 +205,14 @@
             return;
         }
 
+        // Сортируем категории: сначала по типу, потом по алфавиту
+        const sorted = [...categories].sort((a, b) => {
+            if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+
         let html = '';
-        categories.forEach(cat => {
+        sorted.forEach(cat => {
             const typeLabel = cat.type === 'income' ? 'Доход' : 'Расход';
             html += `
                 <div class="modal-category-item">
@@ -405,6 +411,12 @@
             localStorage.setItem('fin_period', currentPeriod);
             localStorage.setItem('fin_custom_from', customDateFrom || '');
             localStorage.setItem('fin_custom_to', customDateTo || '');
+            
+            // Сохраняем имя файла для восстановления
+            if (fileHandle) {
+                localStorage.setItem('fin_auto_save_filename', fileHandle.name);
+                localStorage.setItem('fin_auto_save_file', 'true');
+            }
         } catch (_) {}
         
         // 2. Отложенное сохранение в файл (если файл выбран)
@@ -476,7 +488,7 @@
             statusDot.className = 'status-dot saved';
             statusText.textContent = `Сохранено (${timeStr})`;
             statusText.className = 'status-text saved';
-            folderStatus.textContent = `Сохранено в файл (${timeStr})`;
+            folderStatus.textContent = `Сохранено в файл: ${fileHandle.name} (${timeStr})`;
             folderStatus.className = 'folder-status active';
         } catch (error) {
             console.error('Ошибка сохранения:', error);
@@ -503,94 +515,236 @@
         }, 500);
     }
 
-    // === НОВАЯ ФУНКЦИЯ: Выбор файла для автосохранения ===
+    
+    // === Упрощённый выбор файла ===
     async function selectFileForAutoSave() {
-        try {
-            if (!window.showSaveFilePicker) {
-                alert('Ваш браузер не поддерживает выбор файла. Используйте экспорт/импорт.');
+            try {
+                if (!window.showSaveFilePicker) {
+                    alert('Ваш браузер не поддерживает выбор файла. Используйте экспорт/импорт.');
+                    return;
+                }
+                
+                // Предлагаем выбрать файл для сохранения
+                const newFileHandle = await window.showSaveFilePicker({
+                    suggestedName: 'finanser_data.json',
+                    types: [{
+                        description: 'JSON файл',
+                        accept: { 'application/json': ['.json'] }
+                    }]
+                });
+                
+                // Проверяем, есть ли уже данные в файле
+                try {
+                    const file = await newFileHandle.getFile();
+                    const text = await file.text();
+                    if (text.trim()) {
+                        const data = JSON.parse(text);
+                        if (data.categories && data.transactions) {
+                            if (confirm('В выбранном файле уже есть данные. Загрузить их?')) {
+                                categories = data.categories;
+                                transactions = data.transactions;
+                                renderAll();
+                                localStorage.setItem('fin_categories', JSON.stringify(categories));
+                                localStorage.setItem('fin_transactions', JSON.stringify(transactions));
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Файл пустой или невалидный - просто продолжим
+                    console.log('Файл пустой или новый, продолжим сохранение');
+                }
+                
+                fileHandle = newFileHandle;
+                
+                // Сохраняем информацию о файле
+                try {
+                    localStorage.setItem('fin_auto_save_file', 'true');
+                    localStorage.setItem('fin_auto_save_filename', newFileHandle.name);
+                } catch (_) {}
+                
+                // Обновляем статус
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                statusDot.className = 'status-dot saved';
+                statusText.textContent = `Автосохранение в ${newFileHandle.name}`;
+                statusText.className = 'status-text saved';
+                statusText.style.cursor = 'default';
+                folderStatus.textContent = `Автосохранение в файл: ${newFileHandle.name}`;
+                folderStatus.className = 'folder-status active';
+                
+                // Сразу сохраняем текущие данные
+                await saveToFile();
+                
+                // Закрываем меню
+                toggleMenu(false);
+                
+            } catch (error) {
+                if (error.name !== 'AbortError' && error.name !== 'SecurityError') {
+                    console.error('Ошибка выбора файла:', error);
+                    statusDot.className = 'status-dot error';
+                    statusText.textContent = 'Ошибка выбора файла';
+                    statusText.className = 'status-text error';
+                    statusText.style.cursor = 'default';
+                    folderStatus.textContent = 'Ошибка выбора файла';
+                    folderStatus.className = 'folder-status error';
+                }
+            }
+        }
+
+    async function restoreFileFromStorage() {
+            try {
+                const hasAutoSave = localStorage.getItem('fin_auto_save_file');
+                const fileName = localStorage.getItem('fin_auto_save_filename');
+                
+                if (!hasAutoSave || !fileName) return false;
+                
+                // Проверяем поддержку API
+                if (!window.showOpenFilePicker) {
+                    console.warn('File System Access API не поддерживается');
+                    return false;
+                }
+                
+                // Пытаемся получить доступ к файлу через showOpenFilePicker
+                const [handle] = await window.showOpenFilePicker({
+                    multiple: false,
+                    types: [{
+                        description: 'JSON файлы',
+                        accept: { 'application/json': ['.json'] }
+                    }]
+                });
+                
+                // Проверяем, что это тот же файл (по имени)
+                if (handle.name !== fileName) {
+                    if (!confirm(`Вы выбрали файл "${handle.name}", но ожидался "${fileName}". Использовать выбранный файл?`)) {
+                        return false;
+                    }
+                }
+                
+                // Проверяем содержимое файла
+                const file = await handle.getFile();
+                const text = await file.text();
+                
+                if (!text.trim()) {
+                    // Файл пустой - используем его для сохранения
+                    fileHandle = handle;
+                    return true;
+                }
+                
+                try {
+                    const data = JSON.parse(text);
+                    if (data.categories && data.transactions) {
+                        // Данные есть - загружаем
+                        categories = data.categories;
+                        transactions = data.transactions;
+                        fileHandle = handle;
+                        renderAll();
+                        saveState();
+                        return true;
+                    }
+                } catch (e) {
+                    // Файл повреждён - используем его для сохранения
+                    fileHandle = handle;
+                    await saveToFile();
+                    return true;
+                }
+                
+                return false;
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.log('Пользователь отменил выбор файла');
+                    return false;
+                }
+                console.error('Ошибка восстановления файла:', error);
+                return false;
+            }
+        }
+    
+        // === НОВАЯ ФУНКЦИЯ: Предложение восстановить файл (с UI) ===
+        function promptRestoreFile() {
+            const hasAutoSave = localStorage.getItem('fin_auto_save_file');
+            const fileName = localStorage.getItem('fin_auto_save_filename');
+            
+            if (!hasAutoSave || !fileName) {
+                // Нет сохранённого файла - показываем подсказку
+                statusText.textContent = 'Выберите файл для автосохранения ➜';
+                statusText.className = 'status-text';
+                statusDot.className = 'status-dot';
+                folderStatus.textContent = 'Папка не выбрана';
+                folderStatus.className = 'folder-status';
                 return;
             }
             
-            // Предлагаем выбрать файл для сохранения
-            const newFileHandle = await window.showSaveFilePicker({
-                suggestedName: 'finanser_data.json',
-                types: [{
-                    description: 'JSON файл',
-                    accept: { 'application/json': ['.json'] }
-                }]
-            });
+            // Показываем уведомление о возможности восстановления
+            statusDot.className = 'status-dot';
+            statusText.textContent = `Найден файл "${fileName}". Нажмите для восстановления`;
+            statusText.className = 'status-text';
+            statusText.style.cursor = 'pointer';
+            folderStatus.textContent = `Нажмите на статус, чтобы восстановить файл "${fileName}"`;
+            folderStatus.className = 'folder-status';
             
-            // Проверяем, есть ли уже данные в файле
-            try {
-                const file = await newFileHandle.getFile();
-                const text = await file.text();
-                if (text.trim()) {
-                    const data = JSON.parse(text);
-                    if (data.categories && data.transactions) {
-                        if (confirm('В выбранном файле уже есть данные. Загрузить их?')) {
-                            categories = data.categories;
-                            transactions = data.transactions;
-                            renderAll();
-                            // Сохраняем в localStorage
-                            localStorage.setItem('fin_categories', JSON.stringify(categories));
-                            localStorage.setItem('fin_transactions', JSON.stringify(transactions));
-                        }
-                    }
+            // Делаем кликабельным статус
+            const restoreHandler = async function() {
+                statusDot.className = 'status-dot saving';
+                statusText.textContent = `Восстановление файла "${fileName}"...`;
+                statusText.className = 'status-text saving';
+                statusText.style.cursor = 'default';
+                folderStatus.textContent = `Восстановление файла "${fileName}"...`;
+                folderStatus.className = 'folder-status saving';
+                
+                const restored = await restoreFileFromStorage();
+                
+                if (restored) {
+                    const now = new Date();
+                    const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                    statusDot.className = 'status-dot saved';
+                    statusText.textContent = `Автосохранение в ${fileHandle.name}`;
+                    statusText.className = 'status-text saved';
+                    statusText.style.cursor = 'default';
+                    folderStatus.textContent = `Автосохранение в файл: ${fileHandle.name}`;
+                    folderStatus.className = 'folder-status active';
+                } else {
+                    // Не удалось восстановить
+                    statusDot.className = 'status-dot';
+                    statusText.textContent = 'Выберите файл для автосохранения ➜';
+                    statusText.className = 'status-text';
+                    statusText.style.cursor = 'default';
+                    folderStatus.textContent = 'Восстановление не удалось, выберите файл';
+                    folderStatus.className = 'folder-status';
+                    
+                    localStorage.removeItem('fin_auto_save_file');
+                    localStorage.removeItem('fin_auto_save_filename');
                 }
-            } catch (e) {
-                // Файл пустой или невалидный - просто продолжим
-                console.log('Файл пустой или новый, продолжим сохранение');
-            }
+                
+                // Удаляем обработчик
+                statusText.removeEventListener('click', restoreHandler);
+            };
             
-            fileHandle = newFileHandle;
-            
-            // Сохраняем информацию о файле
+            statusText.addEventListener('click', restoreHandler);
+        }
+    
+        // === Обновлённая функция восстановления при запуске ===
+        function restoreAutoSave() {
             try {
-                localStorage.setItem('fin_auto_save_file', 'true');
-                localStorage.setItem('fin_auto_save_filename', newFileHandle.name);
-            } catch (_) {}
-            
-            // Обновляем статус
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            statusDot.className = 'status-dot saved';
-            statusText.textContent = `Автосохранение в ${newFileHandle.name}`;
-            statusText.className = 'status-text saved';
-            folderStatus.textContent = `Автосохранение в файл: ${newFileHandle.name}`;
-            folderStatus.className = 'folder-status active';
-            
-            // Сразу сохраняем текущие данные
-            await saveToFile();
-            
-            // Закрываем меню
-            toggleMenu(false);
-            
-        } catch (error) {
-            if (error.name !== 'AbortError' && error.name !== 'SecurityError') {
-                console.error('Ошибка выбора файла:', error);
-                statusDot.className = 'status-dot error';
-                statusText.textContent = 'Ошибка выбора файла';
-                statusText.className = 'status-text error';
-                folderStatus.textContent = 'Ошибка выбора файла';
-                folderStatus.className = 'folder-status error';
+                const hasAutoSave = localStorage.getItem('fin_auto_save_file');
+                const fileName = localStorage.getItem('fin_auto_save_filename');
+                
+                if (!hasAutoSave || !fileName) {
+                    statusText.textContent = 'Выберите файл для автосохранения ➜';
+                    statusText.className = 'status-text';
+                    statusDot.className = 'status-dot';
+                    folderStatus.textContent = 'Папка не выбрана';
+                    folderStatus.className = 'folder-status';
+                    return false;
+                }
+                
+                // Показываем предложение восстановить
+                promptRestoreFile();
+                return true;
+            } catch (error) {
+                console.error('Ошибка восстановления автосохранения:', error);
+                return false;
             }
         }
-    }
-
-    // === Восстановление автосохранения ===
-    async function restoreAutoSave() {
-        try {
-            const hasAutoSave = localStorage.getItem('fin_auto_save_file');
-            if (!hasAutoSave) return;
-            
-            // Показываем статус, но файл нужно выбрать заново (безопасность)
-            folderStatus.textContent = 'Нажмите "Выбрать файл для автосохранения" для восстановления';
-            folderStatus.className = 'folder-status';
-            statusText.textContent = 'Автосохранение отключено. Выберите файл.';
-            statusText.className = 'status-text';
-            statusDot.className = 'status-dot';
-        } catch (_) {}
-    }
 
     function exportData() {
         const data = getDataForExport();
@@ -848,35 +1002,6 @@
         saveState();
     }
 
-//     function loadExample() {
-//         categories = [
-//             { id: 'cat1', name: 'Зарплата', type: 'income' },
-//             { id: 'cat2', name: 'Фриланс', type: 'income' },
-//             { id: 'cat3', name: 'Продукты', type: 'expense' },
-//             { id: 'cat4', name: 'Транспорт', type: 'expense' },
-//             { id: 'cat5', name: 'Кафе', type: 'expense' },
-//             { id: 'cat6', name: 'Подписки', type: 'expense' },
-//         ];
-// 
-//         const now = new Date();
-//         const month = now.getMonth();
-//         const year = now.getFullYear();
-// 
-//         transactions = [
-//             { id: generateId(), type: 'income', categoryId: 'cat1', amount: 45000, date: new Date(year, month, 5).toISOString() },
-//             { id: generateId(), type: 'income', categoryId: 'cat2', amount: 8000, date: new Date(year, month, 12).toISOString() },
-//             { id: generateId(), type: 'expense', categoryId: 'cat3', amount: 3200, date: new Date(year, month, 3).toISOString() },
-//             { id: generateId(), type: 'expense', categoryId: 'cat4', amount: 1200, date: new Date(year, month, 8).toISOString() },
-//             { id: generateId(), type: 'expense', categoryId: 'cat5', amount: 950, date: new Date(year, month, 15).toISOString() },
-//             { id: generateId(), type: 'expense', categoryId: 'cat6', amount: 650, date: new Date(year, month, 20).toISOString() },
-//             { id: generateId(), type: 'income', categoryId: 'cat1', amount: 42000, date: new Date(year, month - 1, 5).toISOString() },
-//             { id: generateId(), type: 'expense', categoryId: 'cat3', amount: 2800, date: new Date(year, month - 1, 10).toISOString() },
-//         ];
-// 
-//         renderAll();
-//         saveState();
-//     }
-
     function clearAllData() {
         if (transactions.length === 0) {
             alert('Нет операций для удаления');
@@ -934,64 +1059,64 @@
         saveState();
     }
 
-    // === Event listeners ===
-    function init() {
-        loadState();
-
-        if (categories.length === 0 || transactions.length === 0) {
-            loadExample();
-        } else {
+    // === Инициализация с восстановлением ===
+    async function init() {
+            loadState();
+    
+            // Устанавливаем период
             periodSelect.value = currentPeriod;
             if (currentPeriod === 'custom') {
                 if (customDateFrom) dateFrom.value = customDateFrom;
                 if (customDateTo) dateTo.value = customDateTo;
+                customPeriod.style.display = 'block';
             }
+    
+            // Рендерим данные
             renderAll();
+    
+            // Пытаемся восстановить файл для автосохранения (без автоматического диалога)
+            restoreAutoSave();
+    
+            // === Event listeners ===
+            addBtn.addEventListener('click', addTransaction);
+            txAmount.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') addTransaction();
+            });
+            txType.addEventListener('change', updateCategorySelects);
+    
+            filterType.addEventListener('change', renderTransactions);
+            filterCategory.addEventListener('change', renderTransactions);
+            clearFiltersBtn.addEventListener('click', function() {
+                filterType.value = 'all';
+                filterCategory.value = 'all';
+                renderTransactions();
+            });
+    
+            menuClearAllBtn.addEventListener('click', clearAllData);
+    
+            periodSelect.addEventListener('change', handlePeriodChange);
+            applyCustomPeriod.addEventListener('click', applyCustomDates);
+    
+            // === Файловые операции ===
+            menuSelectFolderBtn.textContent = 'Выбрать файл для автосохранения';
+            menuSelectFolderBtn.addEventListener('click', selectFileForAutoSave);
+            
+            menuExportBtn.addEventListener('click', exportData);
+            menuImportBtn.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', function(e) {
+                if (this.files && this.files[0]) {
+                    importData(this.files[0]);
+                    this.value = '';
+                }
+            });
+    
+            // Автосохранение при закрытии страницы
+            window.addEventListener('beforeunload', function() {
+                if (fileHandle) {
+                    saveToFile();
+                }
+            });
         }
-
-        // Восстанавливаем информацию об автосохранении
-        restoreAutoSave();
-
-        addBtn.addEventListener('click', addTransaction);
-        txAmount.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') addTransaction();
-        });
-        txType.addEventListener('change', updateCategorySelects);
-
-        filterType.addEventListener('change', renderTransactions);
-        filterCategory.addEventListener('change', renderTransactions);
-        clearFiltersBtn.addEventListener('click', function() {
-            filterType.value = 'all';
-            filterCategory.value = 'all';
-            renderTransactions();
-        });
-
-        menuClearAllBtn.addEventListener('click', clearAllData);
-
-        periodSelect.addEventListener('change', handlePeriodChange);
-        applyCustomPeriod.addEventListener('click', applyCustomDates);
-
-        // === ИЗМЕНЕНО: выбор файла для автосохранения ===
-        menuSelectFolderBtn.textContent = 'Выбрать файл для автосохранения';
-        menuSelectFolderBtn.addEventListener('click', selectFileForAutoSave);
-        
-        menuExportBtn.addEventListener('click', exportData);
-        menuImportBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', function(e) {
-            if (this.files && this.files[0]) {
-                importData(this.files[0]);
-                this.value = '';
-            }
-        });
-
-        // Автосохранение при закрытии страницы
-        window.addEventListener('beforeunload', function() {
-            if (fileHandle) {
-                // Сохраняем синхронно, чтобы успеть
-                saveToFile();
-            }
-        });
-    }
 
     init();
 })();
