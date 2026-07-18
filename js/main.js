@@ -19,7 +19,7 @@
     const txType = document.getElementById('txType');
     const txCategorySelect = document.getElementById('txCategorySelect');
     const txAmount = document.getElementById('txAmount');
-    const txDate = document.getElementById('txDate');  // <-- НОВОЕ
+    const txDate = document.getElementById('txDate');
     const addBtn = document.getElementById('addBtn');
 
     const totalIncomeEl = document.getElementById('totalIncome');
@@ -307,6 +307,7 @@
         editTxAmount.value = tx.amount;
         editTxDate.value = new Date(tx.date).toISOString().split('T')[0];
         
+        // Исправление: заполняем категории при открытии
         const available = getCategoriesByType(tx.type);
         editTxCategory.innerHTML = '';
         if (available.length === 0) {
@@ -427,7 +428,7 @@
             const savedCats = localStorage.getItem('fin_categories');
             if (savedCats) {
                 const parsed = JSON.parse(savedCats);
-                if (Array.isArray(parsed) && parsed.length > 0) {
+                if (Array.isArray(parsed)) {
                     categories = parsed;
                 }
             }
@@ -759,6 +760,8 @@
     function updateCategorySelects() {
         const currentType = txType.value;
         const available = getCategoriesByType(currentType);
+        
+        // Очищаем и заполняем select для добавления транзакции
         txCategorySelect.innerHTML = '';
         if (available.length === 0) {
             const opt = document.createElement('option');
@@ -774,18 +777,21 @@
             });
         }
 
+        // Заполняем фильтр категорий
         const filterCurrent = filterCategory.value;
         filterCategory.innerHTML = '';
         const allOpt = document.createElement('option');
         allOpt.value = 'all';
         allOpt.textContent = 'Все категории';
         filterCategory.appendChild(allOpt);
+        
         categories.forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat.id;
             opt.textContent = cat.name;
             filterCategory.appendChild(opt);
         });
+        
         if (filterCurrent) {
             filterCategory.value = filterCurrent;
         }
@@ -941,7 +947,7 @@
         const type = txType.value;
         const categoryId = txCategorySelect.value;
         const amount = parseFloat(txAmount.value);
-        const date = txDate.value;  // <-- НОВОЕ
+        const date = txDate.value;
 
         if (isNaN(amount) || amount <= 0) {
             alert('Введите корректную сумму (больше 0)');
@@ -953,7 +959,7 @@
             return;
         }
 
-        if (!date) {  // <-- НОВОЕ
+        if (!date) {
             alert('Выберите дату');
             return;
         }
@@ -969,11 +975,11 @@
             type: type,
             categoryId: categoryId,
             amount: amount,
-            date: new Date(date).toISOString()  // <-- ИЗМЕНЕНО
+            date: new Date(date).toISOString()
         });
 
         txAmount.value = '';
-        txDate.value = new Date().toISOString().split('T')[0];  // <-- НОВОЕ
+        txDate.value = new Date().toISOString().split('T')[0];
         renderAll();
         saveState();
     }
@@ -1037,58 +1043,78 @@
 
     // === Инициализация ===
     async function init() {
+        // Сначала загружаем данные
         loadState();
 
         // Устанавливаем текущую дату для новой транзакции
-        txDate.value = new Date().toISOString().split('T')[0];  // <-- НОВОЕ
+        const today = new Date().toISOString().split('T')[0];
+        if (txDate) txDate.value = today;
 
-        periodSelect.value = currentPeriod;
+        // Устанавливаем период
+        if (periodSelect) {
+            periodSelect.value = currentPeriod;
+        }
         if (currentPeriod === 'custom') {
-            if (customDateFrom) dateFrom.value = customDateFrom;
-            if (customDateTo) dateTo.value = customDateTo;
-            customPeriod.style.display = 'block';
+            if (customDateFrom && dateFrom) dateFrom.value = customDateFrom;
+            if (customDateTo && dateTo) dateTo.value = customDateTo;
+            if (customPeriod) customPeriod.style.display = 'block';
         }
 
+        // Это ключевой момент — рендерим ВСЁ после загрузки данных
         renderAll();
+        
+        // Восстанавливаем файл
         restoreAutoSave();
 
         // === Event listeners ===
-        addBtn.addEventListener('click', addTransaction);
+        if (addBtn) addBtn.addEventListener('click', addTransaction);
         
-        txAmount.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') addTransaction();
-        });
+        if (txAmount) {
+            txAmount.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') addTransaction();
+            });
+        }
         
-        txDate.addEventListener('keydown', function(e) {  // <-- НОВОЕ
-            if (e.key === 'Enter') addTransaction();
-        });
+        if (txDate) {
+            txDate.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') addTransaction();
+            });
+        }
         
-        txType.addEventListener('change', updateCategorySelects);
+        if (txType) {
+            txType.addEventListener('change', updateCategorySelects);
+        }
 
-        filterType.addEventListener('change', renderTransactions);
-        filterCategory.addEventListener('change', renderTransactions);
-        clearFiltersBtn.addEventListener('click', function() {
-            filterType.value = 'all';
-            filterCategory.value = 'all';
-            renderTransactions();
-        });
+        if (filterType) filterType.addEventListener('change', renderTransactions);
+        if (filterCategory) filterCategory.addEventListener('change', renderTransactions);
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', function() {
+                if (filterType) filterType.value = 'all';
+                if (filterCategory) filterCategory.value = 'all';
+                renderTransactions();
+            });
+        }
 
-        menuClearAllBtn.addEventListener('click', clearAllData);
+        if (menuClearAllBtn) menuClearAllBtn.addEventListener('click', clearAllData);
 
-        periodSelect.addEventListener('change', handlePeriodChange);
-        applyCustomPeriod.addEventListener('click', applyCustomDates);
+        if (periodSelect) periodSelect.addEventListener('change', handlePeriodChange);
+        if (applyCustomPeriod) applyCustomPeriod.addEventListener('click', applyCustomDates);
 
-        menuSelectFolderBtn.textContent = 'Выбрать файл для автосохранения';
-        menuSelectFolderBtn.addEventListener('click', selectFileForAutoSave);
+        if (menuSelectFolderBtn) {
+            menuSelectFolderBtn.textContent = 'Выбрать файл для автосохранения';
+            menuSelectFolderBtn.addEventListener('click', selectFileForAutoSave);
+        }
         
-        menuExportBtn.addEventListener('click', exportData);
-        menuImportBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', function(e) {
-            if (this.files && this.files[0]) {
-                importData(this.files[0]);
-                this.value = '';
-            }
-        });
+        if (menuExportBtn) menuExportBtn.addEventListener('click', exportData);
+        if (menuImportBtn) menuImportBtn.addEventListener('click', () => fileInput.click());
+        if (fileInput) {
+            fileInput.addEventListener('change', function(e) {
+                if (this.files && this.files[0]) {
+                    importData(this.files[0]);
+                    this.value = '';
+                }
+            });
+        }
 
         window.addEventListener('beforeunload', function() {
             if (fileHandle) {
@@ -1097,5 +1123,6 @@
         });
     }
 
+    // Запускаем приложение
     init();
 })();
