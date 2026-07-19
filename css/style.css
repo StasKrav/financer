@@ -917,3 +917,63 @@ input:focus, select:focus {
 .folder-status.active {
     color: #059669;
 }
+
+/* Остаток в списке транзакций */
+.tx-balance {
+    font-size: 0.8rem;
+    color: #1a202c;
+    background: #f3f4f6;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: right;
+    font-weight: 500;
+}
+
+/* Настройки баланса в меню */
+.balance-settings {
+    padding: 0.5rem 0;
+}
+
+.balance-settings .form-group {
+    margin-bottom: 0.75rem;
+}
+
+.balance-settings label {
+    font-size: 0.85rem;
+    color: #4b5563;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.balance-settings input {
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.95rem;
+}
+
+/* Стиль для переключателя сортировки в списке */
+#sortSelect {
+    background: white;
+    border: 1px solid #d1d5db;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+#sortSelect:focus {
+    outline: none;
+    border-color: #1a202c;
+}
+
+/* Текущий баланс в меню */
+#currentBalanceDisplay {
+    font-weight: 700;
+    font-size: 1.2rem;
+}

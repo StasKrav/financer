@@ -9,6 +9,8 @@
     let editingTransactionId = null;
     let saveTimeout = null;
     let isSaving = false;
+    let initialBalance = 0; // <-- НОВОЕ
+    let sortOrder = 'newest'; // 'newest' или 'oldest' <-- НОВОЕ
 
     // === DOM refs ===
     const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -74,6 +76,12 @@
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
 
+    // === НОВЫЕ DOM-ссылки ===
+    const sortSelect = document.getElementById('sortSelect');
+    const initialBalanceInput = document.getElementById('initialBalanceInput');
+    const setInitialBalanceBtn = document.getElementById('setInitialBalanceBtn');
+    const currentBalanceDisplay = document.getElementById('currentBalanceDisplay');
+
     // === Helpers ===
     function generateId() {
         return Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -95,10 +103,11 @@
 
     function getDataForExport() {
         return {
-            version: '1.0',
+            version: '1.1', // <-- ОБНОВЛЕНА версия
             exportedAt: new Date().toISOString(),
             categories: categories,
-            transactions: transactions
+            transactions: transactions,
+            initialBalance: initialBalance // <-- НОВОЕ
         };
     }
 
@@ -151,7 +160,32 @@
         return d >= range.from && d <= range.to;
     }
 
-    // === Menu toggle ===
+    // === Баланс и расчёт остатков ===
+    function calculateBalances(transactionsList) {
+        // Сортируем по дате (старые → новые), при одинаковой дате — по ID
+        const sorted = [...transactionsList].sort((a, b) => {
+            const diff = new Date(a.date) - new Date(b.date);
+            if (diff === 0) return a.id.localeCompare(b.id);
+            return diff;
+        });
+        
+        let balance = initialBalance;
+        return sorted.map(tx => {
+            const amount = tx.type === 'income' ? tx.amount : -tx.amount;
+            balance += amount;
+            return { ...tx, runningBalance: balance };
+        });
+    }
+
+    function getCurrentBalance() {
+        let balance = initialBalance;
+        transactions.forEach(tx => {
+            balance += tx.type === 'income' ? tx.amount : -tx.amount;
+        });
+        return balance;
+    }
+
+    // === Меню ===
     function toggleMenu(open) {
         const isOpen = typeof open === 'boolean' ? open : !dropdownMenu.classList.contains('active');
         dropdownMenu.classList.toggle('active', isOpen);
@@ -307,7 +341,6 @@
         editTxAmount.value = tx.amount;
         editTxDate.value = new Date(tx.date).toISOString().split('T')[0];
         
-        // Исправление: заполняем категории при открытии
         const available = getCategoriesByType(tx.type);
         editTxCategory.innerHTML = '';
         if (available.length === 0) {
@@ -403,6 +436,31 @@
         }
     });
 
+    // === Начальный остаток ===
+    function setInitialBalance(value) {
+        if (isNaN(value) || value < 0) {
+            alert('Введите корректную сумму (больше или равно 0)');
+            return;
+        }
+        initialBalance = value;
+        localStorage.setItem('fin_initial_balance', initialBalance.toString());
+        
+        // Обновляем отображение
+        if (initialBalanceInput) initialBalanceInput.value = initialBalance;
+        if (currentBalanceDisplay) {
+            currentBalanceDisplay.textContent = getCurrentBalance().toFixed(2);
+        }
+        
+        // Пересчитываем и перерисовываем всё
+        renderAll();
+        saveState();
+        
+        // Закрываем меню
+        toggleMenu(false);
+        
+        alert(`Начальный остаток установлен: ${initialBalance.toFixed(2)} руб.`);
+    }
+
     // === Save/Load ===
     function saveState() {
         try {
@@ -411,6 +469,8 @@
             localStorage.setItem('fin_period', currentPeriod);
             localStorage.setItem('fin_custom_from', customDateFrom || '');
             localStorage.setItem('fin_custom_to', customDateTo || '');
+            localStorage.setItem('fin_initial_balance', initialBalance.toString());
+            localStorage.setItem('fin_sort_order', sortOrder);
             
             if (fileHandle) {
                 localStorage.setItem('fin_auto_save_filename', fileHandle.name);
@@ -450,6 +510,14 @@
             const savedTo = localStorage.getItem('fin_custom_to');
             if (savedTo) {
                 customDateTo = savedTo;
+            }
+            const savedBalance = localStorage.getItem('fin_initial_balance');
+            if (savedBalance) {
+                initialBalance = parseFloat(savedBalance) || 0;
+            }
+            const savedSort = localStorage.getItem('fin_sort_order');
+            if (savedSort) {
+                sortOrder = savedSort;
             }
         } catch (_) {}
     }
@@ -534,9 +602,13 @@
                         if (confirm('В выбранном файле уже есть данные. Загрузить их?')) {
                             categories = data.categories;
                             transactions = data.transactions;
+                            if (data.initialBalance !== undefined) {
+                                initialBalance = data.initialBalance;
+                            }
                             renderAll();
                             localStorage.setItem('fin_categories', JSON.stringify(categories));
                             localStorage.setItem('fin_transactions', JSON.stringify(transactions));
+                            localStorage.setItem('fin_initial_balance', initialBalance.toString());
                         }
                     }
                 }
@@ -615,6 +687,9 @@
                 if (data.categories && data.transactions) {
                     categories = data.categories;
                     transactions = data.transactions;
+                    if (data.initialBalance !== undefined) {
+                        initialBalance = data.initialBalance;
+                    }
                     fileHandle = handle;
                     renderAll();
                     saveState();
@@ -744,6 +819,9 @@
                 if (confirm('Импортировать данные? Текущие данные будут заменены.')) {
                     categories = data.categories;
                     transactions = data.transactions;
+                    if (data.initialBalance !== undefined) {
+                        initialBalance = data.initialBalance;
+                    }
                     renderAll();
                     saveState();
                     alert('Данные успешно импортированы');
@@ -761,7 +839,6 @@
         const currentType = txType.value;
         const available = getCategoriesByType(currentType);
         
-        // Очищаем и заполняем select для добавления транзакции
         txCategorySelect.innerHTML = '';
         if (available.length === 0) {
             const opt = document.createElement('option');
@@ -777,7 +854,6 @@
             });
         }
 
-        // Заполняем фильтр категорий
         const filterCurrent = filterCategory.value;
         filterCategory.innerHTML = '';
         const allOpt = document.createElement('option');
@@ -816,57 +892,83 @@
         return filtered;
     }
 
+    // Обновлённая функция отрисовки транзакций (с остатками)
     function renderTransactions() {
         const filtered = getFilteredTransactions();
-        filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // Рассчитываем остатки для отфильтрованных транзакций
+        const withBalances = calculateBalances(filtered);
+        
+        // Сортируем в зависимости от выбранного порядка
+        const sorted = [...withBalances].sort((a, b) => {
+            const dateA = new Date(a.date);
+            const dateB = new Date(b.date);
+            if (sortOrder === 'newest') {
+                return dateB - dateA || b.id.localeCompare(a.id);
+            } else {
+                return dateA - dateB || a.id.localeCompare(b.id);
+            }
+        });
 
-        if (filtered.length === 0) {
+        if (sorted.length === 0) {
             transactionListEl.innerHTML = '<div class="empty-state">Нет операций</div>';
-        } else {
-            let html = '';
-            filtered.forEach(tx => {
-                const catName = tx.categoryId ? getCategoryName(tx.categoryId) : 'Без категории';
-                const typeLabel = tx.type === 'income' ? 'Доход' : 'Расход';
-                const amountClass = tx.type === 'income' ? 'income' : 'expense';
-                const date = new Date(tx.date);
-                const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                html += `
-                    <div class="transaction-item" data-id="${tx.id}">
-                        <div class="tx-info">
-                            <span class="tx-category">${catName}</span>
-                            <span class="tx-type">${typeLabel}</span>
-                            <span class="tx-date">${dateStr}</span>
-                        </div>
-                        <div class="tx-right">
-                            <span class="tx-amount ${amountClass}">${tx.amount.toFixed(2)}</span>
-                            <button class="tx-delete" data-id="${tx.id}">×</button>
-                        </div>
-                    </div>
-                `;
-            });
-            transactionListEl.innerHTML = html;
-
-            transactionListEl.querySelectorAll('.tx-delete').forEach(btn => {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    const id = this.getAttribute('data-id');
-                    if (confirm('Удалить операцию?')) {
-                        transactions = transactions.filter(t => t.id !== id);
-                        renderAll();
-                        saveState();
-                    }
-                });
-            });
-
-            transactionListEl.querySelectorAll('.transaction-item').forEach(item => {
-                item.addEventListener('dblclick', function() {
-                    const id = this.getAttribute('data-id');
-                    openEditPopover(id);
-                });
-            });
+            return;
         }
 
+        let html = '';
+        sorted.forEach(tx => {
+            const catName = tx.categoryId ? getCategoryName(tx.categoryId) : 'Без категории';
+            const typeLabel = tx.type === 'income' ? 'Доход' : 'Расход';
+            const amountClass = tx.type === 'income' ? 'income' : 'expense';
+            const date = new Date(tx.date);
+            const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            
+            // Форматируем остаток
+            const balanceStr = tx.runningBalance !== undefined 
+                ? tx.runningBalance.toFixed(2) 
+                : '';
+            
+            // Показываем остаток только в режиме "старые сверху"
+            const balanceHtml = `<span class="tx-balance">${balanceStr}</span>`;
+            
+            html += `
+                <div class="transaction-item" data-id="${tx.id}">
+                    <div class="tx-info">
+                        <span class="tx-category">${catName}</span>
+                        <span class="tx-type">${typeLabel}</span>
+                        <span class="tx-date">${dateStr}</span>
+                    </div>
+                    <div class="tx-right">
+                        <span class="tx-amount ${amountClass}">${tx.amount.toFixed(2)}</span>
+                        ${balanceHtml}
+                        <button class="tx-delete" data-id="${tx.id}">×</button>
+                    </div>
+                </div>
+            `;
+        });
+        transactionListEl.innerHTML = html;
+
+        transactionListEl.querySelectorAll('.tx-delete').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = this.getAttribute('data-id');
+                if (confirm('Удалить операцию?')) {
+                    transactions = transactions.filter(t => t.id !== id);
+                    renderAll();
+                    saveState();
+                }
+            });
+        });
+
+        transactionListEl.querySelectorAll('.transaction-item').forEach(item => {
+            item.addEventListener('dblclick', function() {
+                const id = this.getAttribute('data-id');
+                openEditPopover(id);
+            });
+        });
+
         updateSummary(filtered);
+        updateBalanceDisplay();
     }
 
     function updateSummary(filteredTransactions) {
@@ -934,6 +1036,14 @@
         return { income, expense };
     }
 
+    function updateBalanceDisplay() {
+        if (currentBalanceDisplay) {
+            const current = getCurrentBalance();
+            currentBalanceDisplay.textContent = current.toFixed(2);
+            currentBalanceDisplay.style.color = current >= 0 ? '#059669' : '#dc2626';
+        }
+    }
+
     function renderAll() {
         updateCategorySelects();
         renderTransactions();
@@ -989,7 +1099,7 @@
             alert('Нет операций для удаления');
             return;
         }
-        if (confirm('Удалить все операции? Категории останутся.')) {
+        if (confirm('Удалить все операции? Категории и начальный остаток останутся.')) {
             transactions = [];
             renderAll();
             saveState();
@@ -1041,9 +1151,16 @@
         saveState();
     }
 
+    // === Сортировка ===
+    function handleSortChange() {
+        sortOrder = sortSelect.value;
+        localStorage.setItem('fin_sort_order', sortOrder);
+        renderTransactions();
+    }
+
     // === Инициализация ===
     async function init() {
-        // Сначала загружаем данные
+        // Загружаем данные
         loadState();
 
         // Устанавливаем текущую дату для новой транзакции
@@ -1060,9 +1177,19 @@
             if (customPeriod) customPeriod.style.display = 'block';
         }
 
-        // Это ключевой момент — рендерим ВСЁ после загрузки данных
+        // Устанавливаем начальный остаток в поле
+        if (initialBalanceInput) {
+            initialBalanceInput.value = initialBalance || '';
+        }
+
+        // Устанавливаем сортировку
+        if (sortSelect) {
+            sortSelect.value = sortOrder;
+        }
+
+        // Рендерим всё
         renderAll();
-        
+
         // Восстанавливаем файл
         restoreAutoSave();
 
@@ -1100,6 +1227,28 @@
         if (periodSelect) periodSelect.addEventListener('change', handlePeriodChange);
         if (applyCustomPeriod) applyCustomPeriod.addEventListener('click', applyCustomDates);
 
+        // === Начальный остаток ===
+        if (setInitialBalanceBtn) {
+            setInitialBalanceBtn.addEventListener('click', function() {
+                const value = parseFloat(initialBalanceInput.value);
+                setInitialBalance(value);
+            });
+        }
+        if (initialBalanceInput) {
+            initialBalanceInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    const value = parseFloat(this.value);
+                    setInitialBalance(value);
+                }
+            });
+        }
+
+        // === Сортировка ===
+        if (sortSelect) {
+            sortSelect.addEventListener('change', handleSortChange);
+        }
+
+        // === Файловые операции ===
         if (menuSelectFolderBtn) {
             menuSelectFolderBtn.textContent = 'Выбрать файл для автосохранения';
             menuSelectFolderBtn.addEventListener('click', selectFileForAutoSave);
@@ -1123,6 +1272,5 @@
         });
     }
 
-    // Запускаем приложение
     init();
 })();
