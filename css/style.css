@@ -977,3 +977,60 @@ input:focus, select:focus {
     font-weight: 700;
     font-size: 1.2rem;
 }
+
+/* ===== Вкладки ===== */
+.tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 0.5rem;
+}
+
+.tab-btn {
+    padding: 0.4rem 0.8rem;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    background: #f3f4f6;
+    color: #1a202c;
+}
+
+.tab-btn.active {
+    background: #1a202c;
+    color: white;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+    animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Адаптация для мобильных */
+@media (max-width: 480px) {
+    .tabs {
+        gap: 0.15rem;
+        flex-wrap: wrap;
+    }
+    .tab-btn {
+        font-size: 0.7rem;
+        padding: 0.3rem 0.5rem;
+    }
+}

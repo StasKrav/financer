@@ -82,6 +82,12 @@
     const setInitialBalanceBtn = document.getElementById('setInitialBalanceBtn');
     const currentBalanceDisplay = document.getElementById('currentBalanceDisplay');
 
+    // === НОВЫЕ DOM-ссылки для графиков ===
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    let dynamicsChart = null;
+    let structureChart = null;
+
     // === Helpers ===
     function generateId() {
         return Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -1036,6 +1042,172 @@
         return { income, expense };
     }
 
+    // === Графики ===
+    function getMonthlyData() {
+        const months = {};
+        const allTransactions = getFilteredTransactions();
+        
+        allTransactions.forEach(t => {
+            const date = new Date(t.date);
+            const key = date.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
+            if (!months[key]) {
+                months[key] = { income: 0, expense: 0, order: date.getTime() };
+            }
+            months[key][t.type] += t.amount;
+        });
+        
+        // Сортируем по дате
+        const sortedKeys = Object.keys(months).sort((a, b) => months[a].order - months[b].order);
+        return sortedKeys.map(key => ({
+            label: key,
+            income: months[key].income,
+            expense: months[key].expense
+        }));
+    }
+    
+    function getCategoryStructure(type = 'expense') {
+        const result = {};
+        const allTransactions = getFilteredTransactions();
+        
+        allTransactions
+            .filter(t => t.type === type)
+            .forEach(t => {
+                const name = t.categoryId ? getCategoryName(t.categoryId) : 'Без категории';
+                result[name] = (result[name] || 0) + t.amount;
+            });
+        
+        return Object.entries(result)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8); // Топ 8 категорий
+    }
+    
+    function renderDynamicsChart() {
+        const canvas = document.getElementById('dynamicsChart');
+        if (!canvas) return;
+        
+        // Уничтожаем старый график, если есть
+        if (dynamicsChart) {
+            dynamicsChart.destroy();
+            dynamicsChart = null;
+        }
+        
+        const data = getMonthlyData();
+        if (data.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+        
+        const ctx = canvas.getContext('2d');
+        dynamicsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.label),
+                datasets: [
+                    {
+                        label: 'Доходы',
+                        data: data.map(d => d.income),
+                        backgroundColor: 'rgba(5, 150, 105, 0.7)',
+                        borderColor: '#059669',
+                        borderWidth: 2,
+                        borderRadius: 4
+                    },
+                    {
+                        label: 'Расходы',
+                        data: data.map(d => d.expense),
+                        backgroundColor: 'rgba(220, 38, 38, 0.7)',
+                        borderColor: '#dc2626',
+                        borderWidth: 2,
+                        borderRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            boxWidth: 12,
+                            padding: 12,
+                            font: { size: 11 }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString('ru-RU');
+                            }
+                        }
+                    },
+                    x: {
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+    
+    function renderStructureChart() {
+        const canvas = document.getElementById('structureChart');
+        if (!canvas) return;
+        
+        if (structureChart) {
+            structureChart.destroy();
+            structureChart = null;
+        }
+        
+        const data = getCategoryStructure('expense');
+        if (data.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+        
+        const colors = [
+            '#059669', '#3b82f6', '#f59e0b', '#ef4444',
+            '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
+        ];
+        
+        const ctx = canvas.getContext('2d');
+        structureChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d[0]),
+                datasets: [{
+                    data: data.map(d => d[1]),
+                    backgroundColor: colors.slice(0, data.length),
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            boxWidth: 12,
+                            padding: 10,
+                            font: { size: 11 }
+                        }
+                    }
+                },
+                cutout: '60%'
+            }
+        });
+    }
+    
+    function renderCharts() {
+        renderDynamicsChart();
+        renderStructureChart();
+    }
+
     function updateBalanceDisplay() {
         if (currentBalanceDisplay) {
             const current = getCurrentBalance();
@@ -1050,6 +1222,7 @@
         if (categoriesModal.classList.contains('active')) {
             renderModalCategories();
         }
+        renderCharts();
     }
 
     // === Actions ===
@@ -1269,6 +1442,32 @@
             if (fileHandle) {
                 saveToFile();
             }
+        });
+    }
+
+    // === Вкладки ===
+    if (tabBtns.length > 0) {
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Убираем активный класс у всех кнопок
+                tabBtns.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Показываем соответствующий контент
+                const tabId = this.getAttribute('data-tab');
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === 'tab-' + tabId) {
+                        content.classList.add('active');
+                    }
+                });
+                
+                // Перерисовываем графики при переключении (для корректного отображения)
+                setTimeout(() => {
+                    if (tabId === 'dynamics') renderDynamicsChart();
+                    if (tabId === 'structure') renderStructureChart();
+                }, 50);
+            });
         });
     }
 

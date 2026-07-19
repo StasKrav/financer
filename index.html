@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>Финансер</title>
+<!-- Подключаем Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -165,34 +167,55 @@
                 </div>
                 <button class="btn btn-primary" id="addBtn" style="width:100%;">Добавить</button>
             </div>
-
-            <!-- Detailed Stats -->
-            <div class="card stats-card">
-                <div class="card-title">Детальная статистика</div>
-                <div class="stats-details">
-                    <div class="stat-row">
-                        <span class="stat-label">Количество операций</span>
-                        <span class="stat-value" id="transactionCount">0</span>
+            <div>
+            
+                <!-- Analytics Tabs -->
+                <div class="card stats-card">
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="overview">Общая</button>
+                        <button class="tab-btn" data-tab="dynamics">Динамика</button>
+                        <button class="tab-btn" data-tab="structure">Структура</button>
                     </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Средний доход</span>
-                        <span class="stat-value income" id="avgIncome">0</span>
+                    
+                    <div class="tab-content active" id="tab-overview">
+                        <div class="stats-details">
+                            <div class="stat-row">
+                                <span class="stat-label">Количество операций</span>
+                                <span class="stat-value" id="transactionCount">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Средний доход</span>
+                                <span class="stat-value income" id="avgIncome">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Средний расход</span>
+                                <span class="stat-value expense" id="avgExpense">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Максимальный доход</span>
+                                <span class="stat-value income" id="maxIncome">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Максимальный расход</span>
+                                <span class="stat-value expense" id="maxExpense">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Самая частaя категория</span>
+                                <span class="stat-value" id="topCategory">—</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Средний расход</span>
-                        <span class="stat-value expense" id="avgExpense">0</span>
+                    
+                    <div class="tab-content" id="tab-dynamics">
+                        <div style="height: 250px;">
+                            <canvas id="dynamicsChart"></canvas>
+                        </div>
                     </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Максимальный доход</span>
-                        <span class="stat-value income" id="maxIncome">0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Максимальный расход</span>
-                        <span class="stat-value expense" id="maxExpense">0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Самая частaя категория</span>
-                        <span class="stat-value" id="topCategory">—</span>
+                    
+                    <div class="tab-content" id="tab-structure">
+                        <div style="height: 250px;">
+                            <canvas id="structureChart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
