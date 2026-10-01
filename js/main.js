@@ -1040,11 +1040,30 @@
         const totals = calcTotals(filteredTransactions);
         totalIncomeEl.textContent = totals.income.toFixed(2);
         totalExpenseEl.textContent = totals.expense.toFixed(2);
-        const balance = totals.income - totals.expense;
-        balanceEl.textContent = balance.toFixed(2);
-        balanceEl.style.color = balance >= 0 ? '#059669' : '#dc2626';
-
-        transactionCountEl.textContent = filteredTransactions.length;
+    
+        // Баланс за выбранный период (без начального остатка)
+        const periodBalance = totals.income - totals.expense;
+        balanceEl.textContent = periodBalance.toFixed(2);
+        balanceEl.style.color = periodBalance >= 0 ? '#059669' : '#dc2626';
+    
+        // Итого сейчас = начальный остаток + баланс за период
+        const totalBalance = initialBalance + periodBalance;
+        const totalBalanceEl = document.getElementById('totalBalance');
+        if (totalBalanceEl) {
+            totalBalanceEl.textContent = totalBalance.toFixed(2);
+            totalBalanceEl.style.color = totalBalance >= 0 ? '#059669' : '#dc2626';
+        }
+    
+        const hint = document.getElementById('initialBalanceHint');
+        if (hint) {
+            hint.textContent = initialBalance === 0
+                ? ''
+                : `вкл. начальный остаток ${initialBalance.toFixed(2)}`;
+        }
+    
+        const count = filteredTransactions.length;
+        transactionCountEl.textContent = count;
+       
 
         const incomeTxs = filteredTransactions.filter(t => t.type === 'income');
         const expenseTxs = filteredTransactions.filter(t => t.type === 'expense');
