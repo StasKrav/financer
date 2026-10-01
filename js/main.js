@@ -9,8 +9,14 @@
     let editingTransactionId = null;
     let saveTimeout = null;
     let isSaving = false;
-    let initialBalance = 0; // <-- НОВОЕ
-    let sortOrder = 'newest'; // 'newest' или 'oldest' <-- НОВОЕ
+    let initialBalance = 0;
+    let sortOrder = 'newest';
+    let lastKnownModified = 0;
+    let pendingExternalData = null; // данные из файла, ждущие подтверждения загрузки
+
+    // Уникальный ID этой вкладки — чтобы отличать свои записи от чужих
+    const instanceId = (crypto.randomUUID && crypto.randomUUID()) ||
+        ('inst-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
 
     // === DOM refs ===
     const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -47,7 +53,6 @@
     const dateTo = document.getElementById('dateTo');
     const applyCustomPeriod = document.getElementById('applyCustomPeriod');
 
-    // Categories modal
     const categoriesModal = document.getElementById('categoriesModal');
     const categoriesModalClose = document.getElementById('categoriesModalClose');
     const modalCategoryList = document.getElementById('modalCategoryList');
@@ -56,7 +61,6 @@
     const modalAddCategoryBtn = document.getElementById('modalAddCategoryBtn');
     const menuCategoriesBtn = document.getElementById('menuCategoriesBtn');
 
-    // Edit popover
     const editPopover = document.getElementById('editPopover');
     const editPopoverClose = document.getElementById('editPopoverClose');
     const editTxType = document.getElementById('editTxType');
@@ -65,24 +69,20 @@
     const editTxDate = document.getElementById('editTxDate');
     const editTxSaveBtn = document.getElementById('editTxSaveBtn');
 
-    // File operations
     const menuSelectFolderBtn = document.getElementById('menuSelectFolderBtn');
     const menuExportBtn = document.getElementById('menuExportBtn');
     const menuImportBtn = document.getElementById('menuImportBtn');
     const fileInput = document.getElementById('fileInput');
     const folderStatus = document.getElementById('folderStatus');
-    
-    // Save status
+
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
 
-    // === НОВЫЕ DOM-ссылки ===
     const sortSelect = document.getElementById('sortSelect');
     const initialBalanceInput = document.getElementById('initialBalanceInput');
     const setInitialBalanceBtn = document.getElementById('setInitialBalanceBtn');
     const currentBalanceDisplay = document.getElementById('currentBalanceDisplay');
 
-    // === НОВЫЕ DOM-ссылки для графиков ===
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
     let dynamicsChart = null;
@@ -109,12 +109,66 @@
 
     function getDataForExport() {
         return {
-            version: '1.1', // <-- ОБНОВЛЕНА версия
+            version: '1.2',
             exportedAt: new Date().toISOString(),
+            lastWriter: instanceId,
+            lastWriteTime: new Date().toISOString(),
             categories: categories,
             transactions: transactions,
-            initialBalance: initialBalance // <-- НОВОЕ
+            initialBalance: initialBalance
         };
+    }
+
+    // ============================================================
+    // IndexedDB — хранение FileSystemFileHandle
+    // ============================================================
+    const DB_NAME = 'finanser_fs';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'handles';
+    const HANDLE_KEY = 'dataFile';
+
+    function openDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function saveHandleToDB(handle) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).put(handle, HANDLE_KEY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async function loadHandleFromDB() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const req = tx.objectStore(STORE_NAME).get(HANDLE_KEY);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function clearHandleFromDB() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).delete(HANDLE_KEY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
     }
 
     // === Date helpers ===
@@ -122,33 +176,34 @@
         const now = new Date();
         const year = now.getFullYear();
         const month = now.getMonth();
-        
+
         let from, to;
-        
-        switch(period) {
+
+        switch (period) {
             case 'all':
                 return null;
             case 'month':
                 from = new Date(year, month, 1);
-                to = new Date(year, month + 1, 0);
+                to = new Date(year, month + 1, 0, 23, 59, 59);
                 break;
             case 'lastMonth':
                 from = new Date(year, month - 1, 1);
-                to = new Date(year, month, 0);
+                to = new Date(year, month, 0, 23, 59, 59);
                 break;
-            case 'quarter':
+            case 'quarter': {
                 const quarterMonth = Math.floor(month / 3) * 3;
                 from = new Date(year, quarterMonth, 1);
-                to = new Date(year, quarterMonth + 3, 0);
+                to = new Date(year, quarterMonth + 3, 0, 23, 59, 59);
                 break;
+            }
             case 'year':
                 from = new Date(year, 0, 1);
-                to = new Date(year, 11, 31);
+                to = new Date(year, 11, 31, 23, 59, 59);
                 break;
             case 'custom':
                 if (customDateFrom && customDateTo) {
-                    from = new Date(customDateFrom);
-                    to = new Date(customDateTo);
+                    from = new Date(customDateFrom + 'T00:00:00');
+                    to = new Date(customDateTo + 'T23:59:59');
                 } else {
                     return null;
                 }
@@ -156,7 +211,7 @@
             default:
                 return null;
         }
-        
+
         return { from, to };
     }
 
@@ -166,15 +221,22 @@
         return d >= range.from && d <= range.to;
     }
 
-    // === Баланс и расчёт остатков ===
+    function toLocalDateInputValue(date) {
+        const d = new Date(date);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+
+    // === Баланс ===
     function calculateBalances(transactionsList) {
-        // Сортируем по дате (старые → новые), при одинаковой дате — по ID
         const sorted = [...transactionsList].sort((a, b) => {
             const diff = new Date(a.date) - new Date(b.date);
             if (diff === 0) return a.id.localeCompare(b.id);
             return diff;
         });
-        
+
         let balance = initialBalance;
         return sorted.map(tx => {
             const amount = tx.type === 'income' ? tx.amount : -tx.amount;
@@ -206,15 +268,9 @@
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            if (categoriesModal.classList.contains('active')) {
-                closeCategoriesModal();
-            }
-            if (editPopover.classList.contains('active')) {
-                closeEditPopover();
-            }
-            if (dropdownMenu.classList.contains('active')) {
-                toggleMenu(false);
-            }
+            if (categoriesModal.classList.contains('active')) closeCategoriesModal();
+            if (editPopover.classList.contains('active')) closeEditPopover();
+            if (dropdownMenu.classList.contains('active')) toggleMenu(false);
         }
     });
 
@@ -291,9 +347,7 @@
                 if (confirm('Удалить категорию? Операции с этой категорией останутся без категории.')) {
                     categories = categories.filter(c => c.id !== id);
                     transactions.forEach(t => {
-                        if (t.categoryId === id) {
-                            t.categoryId = '';
-                        }
+                        if (t.categoryId === id) t.categoryId = '';
                     });
                     renderModalCategories();
                     updateCategorySelects();
@@ -318,11 +372,7 @@
             return;
         }
 
-        categories.push({
-            id: generateId(),
-            name: name,
-            type: type
-        });
+        categories.push({ id: generateId(), name, type });
 
         modalNewCategoryName.value = '';
         renderModalCategories();
@@ -340,13 +390,13 @@
     function openEditPopover(txId) {
         const tx = transactions.find(t => t.id === txId);
         if (!tx) return;
-        
+
         editingTransactionId = txId;
-        
+
         editTxType.value = tx.type;
         editTxAmount.value = tx.amount;
-        editTxDate.value = new Date(tx.date).toISOString().split('T')[0];
-        
+        editTxDate.value = toLocalDateInputValue(tx.date);
+
         const available = getCategoriesByType(tx.type);
         editTxCategory.innerHTML = '';
         if (available.length === 0) {
@@ -363,7 +413,7 @@
                 editTxCategory.appendChild(opt);
             });
         }
-        
+
         editPopover.classList.add('active');
         document.body.style.overflow = 'hidden';
         setTimeout(() => editTxAmount.focus(), 100);
@@ -377,33 +427,31 @@
 
     function saveEditedTransaction() {
         if (!editingTransactionId) return;
-        
+
         const type = editTxType.value;
         const categoryId = editTxCategory.value;
         const amount = parseFloat(editTxAmount.value);
         const date = editTxDate.value;
-        
+
         if (isNaN(amount) || amount <= 0) {
             alert('Введите корректную сумму (больше 0)');
             return;
         }
-        
         if (!categoryId) {
             alert('Выберите категорию');
             return;
         }
-        
         if (!date) {
             alert('Выберите дату');
             return;
         }
-        
+
         const tx = transactions.find(t => t.id === editingTransactionId);
         if (tx) {
             tx.type = type;
             tx.categoryId = categoryId;
             tx.amount = amount;
-            tx.date = new Date(date).toISOString();
+            tx.date = new Date(date + 'T12:00:00').toISOString();
             renderAll();
             saveState();
             closeEditPopover();
@@ -415,7 +463,6 @@
         if (e.target === this) closeEditPopover();
     });
     editTxSaveBtn.addEventListener('click', saveEditedTransaction);
-
     editTxAmount.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') saveEditedTransaction();
     });
@@ -450,24 +497,19 @@
         }
         initialBalance = value;
         localStorage.setItem('fin_initial_balance', initialBalance.toString());
-        
-        // Обновляем отображение
+
         if (initialBalanceInput) initialBalanceInput.value = initialBalance;
         if (currentBalanceDisplay) {
             currentBalanceDisplay.textContent = getCurrentBalance().toFixed(2);
         }
-        
-        // Пересчитываем и перерисовываем всё
+
         renderAll();
         saveState();
-        
-        // Закрываем меню
         toggleMenu(false);
-        
         alert(`Начальный остаток установлен: ${initialBalance.toFixed(2)} руб.`);
     }
 
-    // === Save/Load ===
+    // === Save/Load (localStorage) ===
     function saveState() {
         try {
             localStorage.setItem('fin_categories', JSON.stringify(categories));
@@ -477,16 +519,9 @@
             localStorage.setItem('fin_custom_to', customDateTo || '');
             localStorage.setItem('fin_initial_balance', initialBalance.toString());
             localStorage.setItem('fin_sort_order', sortOrder);
-            
-            if (fileHandle) {
-                localStorage.setItem('fin_auto_save_filename', fileHandle.name);
-                localStorage.setItem('fin_auto_save_file', 'true');
-            }
         } catch (_) {}
-        
-        if (fileHandle) {
-            scheduleSave();
-        }
+
+        if (fileHandle) scheduleSave();
     }
 
     function loadState() {
@@ -494,77 +529,65 @@
             const savedCats = localStorage.getItem('fin_categories');
             if (savedCats) {
                 const parsed = JSON.parse(savedCats);
-                if (Array.isArray(parsed)) {
-                    categories = parsed;
-                }
+                if (Array.isArray(parsed)) categories = parsed;
             }
             const savedTx = localStorage.getItem('fin_transactions');
             if (savedTx) {
                 const parsed = JSON.parse(savedTx);
-                if (Array.isArray(parsed)) {
-                    transactions = parsed;
-                }
+                if (Array.isArray(parsed)) transactions = parsed;
             }
             const savedPeriod = localStorage.getItem('fin_period');
-            if (savedPeriod) {
-                currentPeriod = savedPeriod;
-            }
+            if (savedPeriod) currentPeriod = savedPeriod;
             const savedFrom = localStorage.getItem('fin_custom_from');
-            if (savedFrom) {
-                customDateFrom = savedFrom;
-            }
+            if (savedFrom) customDateFrom = savedFrom;
             const savedTo = localStorage.getItem('fin_custom_to');
-            if (savedTo) {
-                customDateTo = savedTo;
-            }
+            if (savedTo) customDateTo = savedTo;
             const savedBalance = localStorage.getItem('fin_initial_balance');
-            if (savedBalance) {
-                initialBalance = parseFloat(savedBalance) || 0;
-            }
+            if (savedBalance) initialBalance = parseFloat(savedBalance) || 0;
             const savedSort = localStorage.getItem('fin_sort_order');
-            if (savedSort) {
-                sortOrder = savedSort;
-            }
+            if (savedSort) sortOrder = savedSort;
         } catch (_) {}
     }
 
     // === File operations ===
     async function saveToFile() {
-        if (!fileHandle) {
-            console.warn('Файл не выбран для сохранения');
-            return;
-        }
+        if (!fileHandle) return;
         if (isSaving) return;
-        
+
         isSaving = true;
-        
-        statusDot.className = 'status-dot saving';
-        statusText.textContent = 'Сохранение...';
-        statusText.className = 'status-text saving';
+        setStatus('saving', 'Сохранение...');
         folderStatus.textContent = 'Сохранение...';
         folderStatus.className = 'folder-status saving';
-        
+
         try {
+            // Проверить права перед записью
+            const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') {
+                isSaving = false;
+                setStatus('', `Нужно разрешение на запись в «${fileHandle.name}»`);
+                return;
+            }
+
             const data = getDataForExport();
             const json = JSON.stringify(data, null, 2);
-            
+
             const writable = await fileHandle.createWritable();
             await writable.write(json);
             await writable.close();
-            
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
-            statusDot.className = 'status-dot saved';
-            statusText.textContent = `Сохранено (${timeStr})`;
-            statusText.className = 'status-text saved';
-            folderStatus.textContent = `Сохранено в файл: ${fileHandle.name} (${timeStr})`;
+
+            // Обновить lastKnownModified, чтобы не поймать собственные изменения
+            const file = await fileHandle.getFile();
+            lastKnownModified = file.lastModified;
+
+            const timeStr = new Date().toLocaleTimeString('ru-RU', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            setStatus('saved', `Сохранено (${timeStr})`);
+            folderStatus.textContent = `Сохранено в: ${fileHandle.name} (${timeStr})`;
             folderStatus.className = 'folder-status active';
         } catch (error) {
             console.error('Ошибка сохранения:', error);
-            statusDot.className = 'status-dot error';
-            statusText.textContent = 'Ошибка сохранения!';
-            statusText.className = 'status-text error';
+            setStatus('error', 'Ошибка сохранения!');
             folderStatus.textContent = 'Ошибка сохранения!';
             folderStatus.className = 'folder-status error';
         } finally {
@@ -573,230 +596,281 @@
     }
 
     function scheduleSave() {
-        if (saveTimeout) {
-            clearTimeout(saveTimeout);
-        }
+        if (saveTimeout) clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
-            if (fileHandle) {
-                saveToFile();
-            }
+            if (fileHandle) saveToFile();
             saveTimeout = null;
         }, 500);
     }
 
-    async function selectFileForAutoSave() {
+    function setStatus(state, text) {
+        statusDot.className = 'status-dot' + (state ? ' ' + state : '');
+        statusText.textContent = text;
+        statusText.className = 'status-text' + (state ? ' ' + state : '');
+    }
+
+    // Загрузить данные из handle в память
+    async function loadFromFileHandle(handle) {
         try {
-            if (!window.showSaveFilePicker) {
-                alert('Ваш браузер не поддерживает выбор файла. Используйте экспорт/импорт.');
+            const file = await handle.getFile();
+            lastKnownModified = file.lastModified;
+            const text = await file.text();
+            if (!text.trim()) return false;
+
+            const data = JSON.parse(text);
+            if (!data.categories || !data.transactions) return false;
+
+            categories = data.categories;
+            transactions = data.transactions;
+            if (data.initialBalance !== undefined) initialBalance = data.initialBalance;
+            return true;
+        } catch (err) {
+            console.error('Не удалось прочитать файл:', err);
+            return false;
+        }
+    }
+
+    // Сравнить содержимое файла с текущим состоянием в памяти
+    function dataMatchesLocal(data) {
+        try {
+            const sameTx = JSON.stringify(data.transactions) === JSON.stringify(transactions);
+            const sameCats = JSON.stringify(data.categories) === JSON.stringify(categories);
+            const sameBal = (data.initialBalance || 0) === (initialBalance || 0);
+            return sameTx && sameCats && sameBal;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // Проверка внешних изменений (например, из другого браузера)
+    async function checkForExternalChanges() {
+        if (!fileHandle || isSaving) return;
+        try {
+            const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') return;
+
+            const file = await fileHandle.getFile();
+            if (file.lastModified === lastKnownModified) return;
+
+            const text = await file.text();
+            if (!text.trim()) return;
+
+            const data = JSON.parse(text);
+            if (!data.categories || !data.transactions) return;
+
+            // Если содержимое совпадает с нашим — просто обновить метку
+            if (dataMatchesLocal(data)) {
+                lastKnownModified = file.lastModified;
                 return;
             }
-            
-            const newFileHandle = await window.showSaveFilePicker({
+
+            // Файл изменён кем-то другим
+            if (data.lastWriter === instanceId) {
+                // Это наша собственная запись, но по какой-то причине не отражена
+                lastKnownModified = file.lastModified;
+                return;
+            }
+
+            const load = confirm(
+                'Файл изменился в другом браузере или на другом устройстве.\n' +
+                'Загрузить свежую версию? Локальные несохранённые изменения будут потеряны.'
+            );
+            if (load) {
+                categories = data.categories;
+                transactions = data.transactions;
+                if (data.initialBalance !== undefined) initialBalance = data.initialBalance;
+                lastKnownModified = file.lastModified;
+                renderAll();
+                saveLocalStateOnly();
+                setStatus('saved', `Обновлено из файла (${new Date().toLocaleTimeString('ru-RU')})`);
+            } else {
+                lastKnownModified = file.lastModified;
+            }
+        } catch (err) {
+            console.warn('Проверка внешних изменений не удалась:', err);
+        }
+    }
+
+    // Сохранить только в localStorage, без записи в файл
+    function saveLocalStateOnly() {
+        try {
+            localStorage.setItem('fin_categories', JSON.stringify(categories));
+            localStorage.setItem('fin_transactions', JSON.stringify(transactions));
+            localStorage.setItem('fin_initial_balance', initialBalance.toString());
+        } catch (_) {}
+    }
+
+    // Выбор нового файла
+    async function selectFileForAutoSave() {
+        if (!window.showSaveFilePicker) {
+            alert('Ваш браузер не поддерживает File System Access API. Используйте экспорт/импорт.');
+            return;
+        }
+
+        try {
+            const newHandle = await window.showSaveFilePicker({
                 suggestedName: 'finanser_data.json',
                 types: [{
                     description: 'JSON файл',
                     accept: { 'application/json': ['.json'] }
                 }]
             });
-            
-            try {
-                const file = await newFileHandle.getFile();
-                const text = await file.text();
-                if (text.trim()) {
-                    const data = JSON.parse(text);
-                    if (data.categories && data.transactions) {
-                        if (confirm('В выбранном файле уже есть данные. Загрузить их?')) {
-                            categories = data.categories;
-                            transactions = data.transactions;
-                            if (data.initialBalance !== undefined) {
-                                initialBalance = data.initialBalance;
-                            }
-                            renderAll();
-                            localStorage.setItem('fin_categories', JSON.stringify(categories));
-                            localStorage.setItem('fin_transactions', JSON.stringify(transactions));
-                            localStorage.setItem('fin_initial_balance', initialBalance.toString());
-                        }
-                    }
-                }
-            } catch (e) {
-                console.log('Файл пустой или новый, продолжим сохранение');
+
+            // Запросить разрешение немедленно, из жеста пользователя
+            const perm = await newHandle.requestPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') {
+                alert('Нужно разрешить доступ к файлу, чтобы включить автосохранение.');
+                return;
             }
-            
-            fileHandle = newFileHandle;
-            
-            try {
-                localStorage.setItem('fin_auto_save_file', 'true');
-                localStorage.setItem('fin_auto_save_filename', newFileHandle.name);
-            } catch (_) {}
-            
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            statusDot.className = 'status-dot saved';
-            statusText.textContent = `Автосохранение в ${newFileHandle.name}`;
-            statusText.className = 'status-text saved';
-            statusText.style.cursor = 'default';
-            folderStatus.textContent = `Автосохранение в файл: ${newFileHandle.name}`;
-            folderStatus.className = 'folder-status active';
-            
+
+            fileHandle = newHandle;
+            await saveHandleToDB(newHandle);
+
+            // Попробовать прочитать существующие данные
+            const loaded = await loadFromFileHandle(newHandle);
+            if (loaded) {
+                const replace = confirm(
+                    `В файле «${newHandle.name}» уже есть данные.\n` +
+                    `Загрузить их? (Отмена — использовать текущие данные и перезаписать файл)`
+                );
+                if (replace) {
+                    renderAll();
+                    saveLocalStateOnly();
+                }
+            }
+
+            renderAll();
+            updateSelectButtonLabel();
+
+            // Первая запись
             await saveToFile();
             toggleMenu(false);
-            
-        } catch (error) {
-            if (error.name !== 'AbortError' && error.name !== 'SecurityError') {
-                console.error('Ошибка выбора файла:', error);
-                statusDot.className = 'status-dot error';
-                statusText.textContent = 'Ошибка выбора файла';
-                statusText.className = 'status-text error';
-                statusText.style.cursor = 'default';
-                folderStatus.textContent = 'Ошибка выбора файла';
-                folderStatus.className = 'folder-status error';
+        } catch (err) {
+            if (err.name !== 'AbortError' && err.name !== 'SecurityError') {
+                console.error('Ошибка выбора файла:', err);
+                setStatus('error', 'Ошибка выбора файла');
             }
         }
     }
 
-    async function restoreFileFromStorage() {
-        try {
-            const hasAutoSave = localStorage.getItem('fin_auto_save_file');
-            const fileName = localStorage.getItem('fin_auto_save_filename');
-            
-            if (!hasAutoSave || !fileName) return false;
-            
-            if (!window.showOpenFilePicker) {
-                console.warn('File System Access API не поддерживается');
-                return false;
-            }
-            
-            const [handle] = await window.showOpenFilePicker({
-                multiple: false,
-                types: [{
-                    description: 'JSON файлы',
-                    accept: { 'application/json': ['.json'] }
-                }]
-            });
-            
-            if (handle.name !== fileName) {
-                if (!confirm(`Вы выбрали файл "${handle.name}", но ожидался "${fileName}". Использовать выбранный файл?`)) {
-                    return false;
-                }
-            }
-            
-            const file = await handle.getFile();
-            const text = await file.text();
-            
-            if (!text.trim()) {
-                fileHandle = handle;
-                return true;
-            }
-            
+    // Восстановление подключения к сохранённому handle (один клик)
+    function showReconnectPrompt(handle) {
+        setStatus('', `Нажмите, чтобы восстановить «${handle.name}»`);
+        statusText.style.cursor = 'pointer';
+        folderStatus.textContent = `Файл сохранён, но требуется подтверждение доступа`;
+        folderStatus.className = 'folder-status';
+
+        const onClick = async () => {
+            statusText.removeEventListener('click', onClick);
+            statusText.style.cursor = 'default';
+
             try {
-                const data = JSON.parse(text);
-                if (data.categories && data.transactions) {
-                    categories = data.categories;
-                    transactions = data.transactions;
-                    if (data.initialBalance !== undefined) {
-                        initialBalance = data.initialBalance;
-                    }
-                    fileHandle = handle;
-                    renderAll();
-                    saveState();
-                    return true;
+                const perm = await handle.requestPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') {
+                    setStatus('error', 'Доступ не разрешён');
+                    return;
                 }
-            } catch (e) {
+
                 fileHandle = handle;
-                await saveToFile();
-                return true;
+                const loaded = await loadFromFileHandle(handle);
+                if (loaded) {
+                    renderAll();
+                    saveLocalStateOnly();
+                }
+                setStatus('saved', `Автосохранение: ${handle.name}`);
+                folderStatus.textContent = `Автосохранение в: ${handle.name}`;
+                folderStatus.className = 'folder-status active';
+                updateSelectButtonLabel();
+            } catch (err) {
+                console.error('Ошибка восстановления:', err);
+                setStatus('error', 'Ошибка восстановления доступа');
             }
-            
-            return false;
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('Пользователь отменил выбор файла');
-                return false;
-            }
-            console.error('Ошибка восстановления файла:', error);
-            return false;
-        }
+        };
+
+        statusText.addEventListener('click', onClick);
     }
 
-    function promptRestoreFile() {
-        const hasAutoSave = localStorage.getItem('fin_auto_save_file');
-        const fileName = localStorage.getItem('fin_auto_save_filename');
-        
-        if (!hasAutoSave || !fileName) {
-            statusText.textContent = 'Выберите файл для автосохранения ➜';
-            statusText.className = 'status-text';
-            statusDot.className = 'status-dot';
-            folderStatus.textContent = 'Папка не выбрана';
+    // При запуске приложения: попытаться восстановить handle
+    async function restoreAutoSave() {
+        if (!window.showSaveFilePicker) {
+            setStatus('', 'Автосохранение не поддерживается в этом браузере');
+            return;
+        }
+
+        let handle = null;
+        try {
+            handle = await loadHandleFromDB();
+        } catch (err) {
+            console.warn('IndexedDB недоступна:', err);
+        }
+
+        if (!handle) {
+            setStatus('', 'Выберите файл для автосохранения ➜');
+            folderStatus.textContent = 'Файл не выбран';
             folderStatus.className = 'folder-status';
             return;
         }
-        
-        statusDot.className = 'status-dot';
-        statusText.textContent = `Найден файл "${fileName}". Нажмите для восстановления`;
-        statusText.className = 'status-text';
-        statusText.style.cursor = 'pointer';
-        folderStatus.textContent = `Нажмите на статус, чтобы восстановить файл "${fileName}"`;
-        folderStatus.className = 'folder-status';
-        
-        const restoreHandler = async function() {
-            statusDot.className = 'status-dot saving';
-            statusText.textContent = `Восстановление файла "${fileName}"...`;
-            statusText.className = 'status-text saving';
-            statusText.style.cursor = 'default';
-            folderStatus.textContent = `Восстановление файла "${fileName}"...`;
-            folderStatus.className = 'folder-status saving';
-            
-            const restored = await restoreFileFromStorage();
-            
-            if (restored) {
-                const now = new Date();
-                const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                statusDot.className = 'status-dot saved';
-                statusText.textContent = `Автосохранение в ${fileHandle.name}`;
-                statusText.className = 'status-text saved';
-                statusText.style.cursor = 'default';
-                folderStatus.textContent = `Автосохранение в файл: ${fileHandle.name}`;
-                folderStatus.className = 'folder-status active';
-            } else {
-                statusDot.className = 'status-dot';
-                statusText.textContent = 'Выберите файл для автосохранения ➜';
-                statusText.className = 'status-text';
-                statusText.style.cursor = 'default';
-                folderStatus.textContent = 'Восстановление не удалось, выберите файл';
-                folderStatus.className = 'folder-status';
-                
-                localStorage.removeItem('fin_auto_save_file');
-                localStorage.removeItem('fin_auto_save_filename');
+
+        fileHandle = handle;
+
+        // Проверить права
+        const perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+            const loaded = await loadFromFileHandle(handle);
+            if (loaded) {
+                renderAll();
+                saveLocalStateOnly();
             }
-            
-            statusText.removeEventListener('click', restoreHandler);
-        };
-        
-        statusText.addEventListener('click', restoreHandler);
+            setStatus('saved', `Автосохранение: ${handle.name}`);
+            folderStatus.textContent = `Автосохранение в: ${handle.name}`;
+            folderStatus.className = 'folder-status active';
+            updateSelectButtonLabel();
+            return;
+        }
+
+        // Нужно подтверждение пользователя
+        showReconnectPrompt(handle);
     }
 
-    function restoreAutoSave() {
+    // Отключить файл
+    async function disconnectFile() {
+        if (!confirm('Отключить автосохранение? Данные останутся в localStorage.')) return;
+        fileHandle = null;
+        lastKnownModified = 0;
         try {
-            const hasAutoSave = localStorage.getItem('fin_auto_save_file');
-            const fileName = localStorage.getItem('fin_auto_save_filename');
-            
-            if (!hasAutoSave || !fileName) {
-                statusText.textContent = 'Выберите файл для автосохранения ➜';
-                statusText.className = 'status-text';
-                statusDot.className = 'status-dot';
-                folderStatus.textContent = 'Папка не выбрана';
-                folderStatus.className = 'folder-status';
-                return false;
+            await clearHandleFromDB();
+        } catch (_) {}
+        setStatus('', 'Выберите файл для автосохранения ➜');
+        folderStatus.textContent = 'Файл не выбран';
+        folderStatus.className = 'folder-status';
+        updateSelectButtonLabel();
+        toggleMenu(false);
+    }
+
+    // Обновить подпись кнопки в меню + добавить/убрать кнопку «Отключить»
+    function updateSelectButtonLabel() {
+        if (!menuSelectFolderBtn) return;
+        menuSelectFolderBtn.textContent = fileHandle
+            ? 'Выбрать другой файл для автосохранения'
+            : 'Выбрать файл для автосохранения';
+
+        // Кнопка «Отключить» — создаём при необходимости
+        let disconnectBtn = document.getElementById('menuDisconnectBtn');
+        if (fileHandle) {
+            if (!disconnectBtn) {
+                disconnectBtn = document.createElement('button');
+                disconnectBtn.id = 'menuDisconnectBtn';
+                disconnectBtn.className = 'menu-file-btn';
+                disconnectBtn.textContent = 'Отключить автосохранение';
+                disconnectBtn.addEventListener('click', disconnectFile);
+                menuSelectFolderBtn.parentNode.insertBefore(disconnectBtn, menuSelectFolderBtn.nextSibling);
             }
-            
-            promptRestoreFile();
-            return true;
-        } catch (error) {
-            console.error('Ошибка восстановления автосохранения:', error);
-            return false;
+        } else if (disconnectBtn) {
+            disconnectBtn.remove();
         }
     }
 
+    // Экспорт
     function exportData() {
         const data = getDataForExport();
         const json = JSON.stringify(data, null, 2);
@@ -804,30 +878,27 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `finanser_data_${new Date().toISOString().slice(0,10)}.json`;
+        a.download = `finanser_data_${new Date().toISOString().slice(0, 10)}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }
 
+    // Импорт
     function importData(file) {
         const reader = new FileReader();
         reader.onload = function(e) {
             try {
                 const data = JSON.parse(e.target.result);
-                
                 if (!data.categories || !data.transactions) {
                     alert('Неверный формат файла');
                     return;
                 }
-                
                 if (confirm('Импортировать данные? Текущие данные будут заменены.')) {
                     categories = data.categories;
                     transactions = data.transactions;
-                    if (data.initialBalance !== undefined) {
-                        initialBalance = data.initialBalance;
-                    }
+                    if (data.initialBalance !== undefined) initialBalance = data.initialBalance;
                     renderAll();
                     saveState();
                     alert('Данные успешно импортированы');
@@ -844,7 +915,7 @@
     function updateCategorySelects() {
         const currentType = txType.value;
         const available = getCategoriesByType(currentType);
-        
+
         txCategorySelect.innerHTML = '';
         if (available.length === 0) {
             const opt = document.createElement('option');
@@ -866,17 +937,15 @@
         allOpt.value = 'all';
         allOpt.textContent = 'Все категории';
         filterCategory.appendChild(allOpt);
-        
+
         categories.forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat.id;
             opt.textContent = cat.name;
             filterCategory.appendChild(opt);
         });
-        
-        if (filterCurrent) {
-            filterCategory.value = filterCurrent;
-        }
+
+        if (filterCurrent) filterCategory.value = filterCurrent;
     }
 
     function getFilteredTransactions() {
@@ -885,39 +954,33 @@
         const dateRange = getDateRange(currentPeriod);
 
         let filtered = transactions;
-        if (typeFilter !== 'all') {
-            filtered = filtered.filter(t => t.type === typeFilter);
-        }
-        if (categoryFilter !== 'all') {
-            filtered = filtered.filter(t => t.categoryId === categoryFilter);
-        }
-        if (dateRange) {
-            filtered = filtered.filter(t => isDateInRange(t.date, dateRange));
-        }
-        
+        if (typeFilter !== 'all') filtered = filtered.filter(t => t.type === typeFilter);
+        if (categoryFilter !== 'all') filtered = filtered.filter(t => t.categoryId === categoryFilter);
+        if (dateRange) filtered = filtered.filter(t => isDateInRange(t.date, dateRange));
+
         return filtered;
     }
 
-    // Обновлённая функция отрисовки транзакций (с остатками)
     function renderTransactions() {
         const filtered = getFilteredTransactions();
-        
-        // Рассчитываем остатки для отфильтрованных транзакций
-        const withBalances = calculateBalances(filtered);
-        
-        // Сортируем в зависимости от выбранного порядка
-        const sorted = [...withBalances].sort((a, b) => {
+
+        // ВАЖНО: считаем остатки по ПОЛНОЙ истории, потом фильтруем
+        const allWithBalances = calculateBalances(transactions);
+        const balanceMap = new Map(allWithBalances.map(t => [t.id, t.runningBalance]));
+
+        const sorted = [...filtered].sort((a, b) => {
             const dateA = new Date(a.date);
             const dateB = new Date(b.date);
             if (sortOrder === 'newest') {
                 return dateB - dateA || b.id.localeCompare(a.id);
-            } else {
-                return dateA - dateB || a.id.localeCompare(b.id);
             }
+            return dateA - dateB || a.id.localeCompare(b.id);
         });
 
         if (sorted.length === 0) {
             transactionListEl.innerHTML = '<div class="empty-state">Нет операций</div>';
+            updateSummary(filtered);
+            updateBalanceDisplay();
             return;
         }
 
@@ -927,16 +990,13 @@
             const typeLabel = tx.type === 'income' ? 'Доход' : 'Расход';
             const amountClass = tx.type === 'income' ? 'income' : 'expense';
             const date = new Date(tx.date);
-            const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            
-            // Форматируем остаток
-            const balanceStr = tx.runningBalance !== undefined 
-                ? tx.runningBalance.toFixed(2) 
-                : '';
-            
-            // Показываем остаток только в режиме "старые сверху"
-            const balanceHtml = `<span class="tx-balance">${balanceStr}</span>`;
-            
+            const dateStr = date.toLocaleDateString('ru-RU', {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+
+            const rb = balanceMap.get(tx.id);
+            const balanceStr = rb !== undefined ? rb.toFixed(2) : '';
+
             html += `
                 <div class="transaction-item" data-id="${tx.id}">
                     <div class="tx-info">
@@ -946,7 +1006,7 @@
                     </div>
                     <div class="tx-right">
                         <span class="tx-amount ${amountClass}">${tx.amount.toFixed(2)}</span>
-                        ${balanceHtml}
+                        <span class="tx-balance">${balanceStr}</span>
                         <button class="tx-delete" data-id="${tx.id}">×</button>
                     </div>
                 </div>
@@ -968,8 +1028,7 @@
 
         transactionListEl.querySelectorAll('.transaction-item').forEach(item => {
             item.addEventListener('dblclick', function() {
-                const id = this.getAttribute('data-id');
-                openEditPopover(id);
+                openEditPopover(this.getAttribute('data-id'));
             });
         });
 
@@ -985,29 +1044,22 @@
         balanceEl.textContent = balance.toFixed(2);
         balanceEl.style.color = balance >= 0 ? '#059669' : '#dc2626';
 
-        const count = filteredTransactions.length;
-        transactionCountEl.textContent = count;
+        transactionCountEl.textContent = filteredTransactions.length;
 
         const incomeTxs = filteredTransactions.filter(t => t.type === 'income');
         const expenseTxs = filteredTransactions.filter(t => t.type === 'expense');
 
-        const avgIncome = incomeTxs.length > 0 
-            ? incomeTxs.reduce((sum, t) => sum + t.amount, 0) / incomeTxs.length 
-            : 0;
-        const avgExpense = expenseTxs.length > 0 
-            ? expenseTxs.reduce((sum, t) => sum + t.amount, 0) / expenseTxs.length 
-            : 0;
-        
+        const avgIncome = incomeTxs.length > 0
+            ? incomeTxs.reduce((s, t) => s + t.amount, 0) / incomeTxs.length : 0;
+        const avgExpense = expenseTxs.length > 0
+            ? expenseTxs.reduce((s, t) => s + t.amount, 0) / expenseTxs.length : 0;
+
         avgIncomeEl.textContent = avgIncome.toFixed(2);
         avgExpenseEl.textContent = avgExpense.toFixed(2);
 
-        const maxIncome = incomeTxs.length > 0 
-            ? Math.max(...incomeTxs.map(t => t.amount)) 
-            : 0;
-        const maxExpense = expenseTxs.length > 0 
-            ? Math.max(...expenseTxs.map(t => t.amount)) 
-            : 0;
-        
+        const maxIncome = incomeTxs.length > 0 ? Math.max(...incomeTxs.map(t => t.amount)) : 0;
+        const maxExpense = expenseTxs.length > 0 ? Math.max(...expenseTxs.map(t => t.amount)) : 0;
+
         maxIncomeEl.textContent = maxIncome.toFixed(2);
         maxExpenseEl.textContent = maxExpense.toFixed(2);
 
@@ -1045,9 +1097,9 @@
     // === Графики ===
     function getMonthlyData() {
         const months = {};
-        const allTransactions = getFilteredTransactions();
-        
-        allTransactions.forEach(t => {
+        const all = getFilteredTransactions();
+
+        all.forEach(t => {
             const date = new Date(t.date);
             const key = date.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
             if (!months[key]) {
@@ -1055,8 +1107,7 @@
             }
             months[key][t.type] += t.amount;
         });
-        
-        // Сортируем по дате
+
         const sortedKeys = Object.keys(months).sort((a, b) => months[a].order - months[b].order);
         return sortedKeys.map(key => ({
             label: key,
@@ -1064,42 +1115,35 @@
             expense: months[key].expense
         }));
     }
-    
+
     function getCategoryStructure(type = 'expense') {
         const result = {};
-        const allTransactions = getFilteredTransactions();
-        
-        allTransactions
-            .filter(t => t.type === type)
-            .forEach(t => {
-                const name = t.categoryId ? getCategoryName(t.categoryId) : 'Без категории';
-                result[name] = (result[name] || 0) + t.amount;
-            });
-        
-        return Object.entries(result)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 8); // Топ 8 категорий
+        const all = getFilteredTransactions();
+
+        all.filter(t => t.type === type).forEach(t => {
+            const name = t.categoryId ? getCategoryName(t.categoryId) : 'Без категории';
+            result[name] = (result[name] || 0) + t.amount;
+        });
+
+        return Object.entries(result).sort((a, b) => b[1] - a[1]).slice(0, 8);
     }
-    
+
     function renderDynamicsChart() {
         const canvas = document.getElementById('dynamicsChart');
         if (!canvas) return;
-        
-        // Уничтожаем старый график, если есть
+
         if (dynamicsChart) {
             dynamicsChart.destroy();
             dynamicsChart = null;
         }
-        
+
         const data = getMonthlyData();
         if (data.length === 0) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
             return;
         }
-        
-        const ctx = canvas.getContext('2d');
-        dynamicsChart = new Chart(ctx, {
+
+        dynamicsChart = new Chart(canvas.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: data.map(d => d.label),
@@ -1128,53 +1172,41 @@
                 plugins: {
                     legend: {
                         position: 'top',
-                        labels: {
-                            boxWidth: 12,
-                            padding: 12,
-                            font: { size: 11 }
-                        }
+                        labels: { boxWidth: 12, padding: 12, font: { size: 11 } }
                     }
                 },
                 scales: {
                     y: {
                         beginAtZero: true,
-                        ticks: {
-                            callback: function(value) {
-                                return value.toLocaleString('ru-RU');
-                            }
-                        }
+                        ticks: { callback: v => v.toLocaleString('ru-RU') }
                     },
-                    x: {
-                        grid: { display: false }
-                    }
+                    x: { grid: { display: false } }
                 }
             }
         });
     }
-    
+
     function renderStructureChart() {
         const canvas = document.getElementById('structureChart');
         if (!canvas) return;
-        
+
         if (structureChart) {
             structureChart.destroy();
             structureChart = null;
         }
-        
+
         const data = getCategoryStructure('expense');
         if (data.length === 0) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
             return;
         }
-        
+
         const colors = [
             '#059669', '#3b82f6', '#f59e0b', '#ef4444',
             '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
         ];
-        
-        const ctx = canvas.getContext('2d');
-        structureChart = new Chart(ctx, {
+
+        structureChart = new Chart(canvas.getContext('2d'), {
             type: 'doughnut',
             data: {
                 labels: data.map(d => d[0]),
@@ -1191,18 +1223,14 @@
                 plugins: {
                     legend: {
                         position: 'right',
-                        labels: {
-                            boxWidth: 12,
-                            padding: 10,
-                            font: { size: 11 }
-                        }
+                        labels: { boxWidth: 12, padding: 10, font: { size: 11 } }
                     }
                 },
                 cutout: '60%'
             }
         });
     }
-    
+
     function renderCharts() {
         renderDynamicsChart();
         renderStructureChart();
@@ -1219,9 +1247,7 @@
     function renderAll() {
         updateCategorySelects();
         renderTransactions();
-        if (categoriesModal.classList.contains('active')) {
-            renderModalCategories();
-        }
+        if (categoriesModal.classList.contains('active')) renderModalCategories();
         renderCharts();
     }
 
@@ -1236,12 +1262,10 @@
             alert('Введите корректную сумму (больше 0)');
             return;
         }
-
         if (!categoryId) {
             alert('Выберите категорию');
             return;
         }
-
         if (!date) {
             alert('Выберите дату');
             return;
@@ -1258,11 +1282,11 @@
             type: type,
             categoryId: categoryId,
             amount: amount,
-            date: new Date(date).toISOString()
+            date: new Date(date + 'T12:00:00').toISOString()
         });
 
         txAmount.value = '';
-        txDate.value = new Date().toISOString().split('T')[0];
+        txDate.value = toLocalDateInputValue(new Date());
         renderAll();
         saveState();
     }
@@ -1280,26 +1304,23 @@
         }
     }
 
-    // === Period handling ===
+    // === Period ===
     function handlePeriodChange() {
-        const period = periodSelect.value;
-        currentPeriod = period;
-        
-        if (period === 'custom') {
+        currentPeriod = periodSelect.value;
+
+        if (currentPeriod === 'custom') {
             customPeriod.style.display = 'block';
             if (!dateFrom.value) {
                 const now = new Date();
-                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-                dateFrom.value = firstDay.toISOString().split('T')[0];
+                dateFrom.value = toLocalDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1));
             }
             if (!dateTo.value) {
-                const now = new Date();
-                dateTo.value = now.toISOString().split('T')[0];
+                dateTo.value = toLocalDateInputValue(new Date());
             }
         } else {
             customPeriod.style.display = 'none';
         }
-        
+
         renderAll();
         saveState();
     }
@@ -1309,15 +1330,15 @@
             alert('Выберите обе даты');
             return;
         }
-        
+
         const from = new Date(dateFrom.value);
         const to = new Date(dateTo.value);
-        
+
         if (from > to) {
             alert('Дата "С" должна быть раньше даты "По"');
             return;
         }
-        
+
         customDateFrom = dateFrom.value;
         customDateTo = dateTo.value;
         renderAll();
@@ -1331,59 +1352,64 @@
         renderTransactions();
     }
 
-    // === Инициализация ===
+    // === Вкладки ===
+    if (tabBtns.length > 0) {
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                tabBtns.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                const tabId = this.getAttribute('data-tab');
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === 'tab-' + tabId) content.classList.add('active');
+                });
+
+                setTimeout(() => {
+                    if (tabId === 'dynamics') renderDynamicsChart();
+                    if (tabId === 'structure') renderStructureChart();
+                }, 50);
+            });
+        });
+    }
+
+    // === Init ===
     async function init() {
-        // Загружаем данные
         loadState();
 
-        // Устанавливаем текущую дату для новой транзакции
-        const today = new Date().toISOString().split('T')[0];
+        const today = toLocalDateInputValue(new Date());
         if (txDate) txDate.value = today;
 
-        // Устанавливаем период
-        if (periodSelect) {
-            periodSelect.value = currentPeriod;
-        }
+        if (periodSelect) periodSelect.value = currentPeriod;
         if (currentPeriod === 'custom') {
             if (customDateFrom && dateFrom) dateFrom.value = customDateFrom;
             if (customDateTo && dateTo) dateTo.value = customDateTo;
             if (customPeriod) customPeriod.style.display = 'block';
         }
 
-        // Устанавливаем начальный остаток в поле
-        if (initialBalanceInput) {
-            initialBalanceInput.value = initialBalance || '';
-        }
+        if (initialBalanceInput) initialBalanceInput.value = initialBalance || '';
+        if (sortSelect) sortSelect.value = sortOrder;
 
-        // Устанавливаем сортировку
-        if (sortSelect) {
-            sortSelect.value = sortOrder;
-        }
-
-        // Рендерим всё
         renderAll();
 
         // Восстанавливаем файл
-        restoreAutoSave();
+        await restoreAutoSave();
+        updateSelectButtonLabel();
 
-        // === Event listeners ===
+        // === Слушатели ===
         if (addBtn) addBtn.addEventListener('click', addTransaction);
-        
+
         if (txAmount) {
-            txAmount.addEventListener('keydown', function(e) {
+            txAmount.addEventListener('keydown', e => {
                 if (e.key === 'Enter') addTransaction();
             });
         }
-        
         if (txDate) {
-            txDate.addEventListener('keydown', function(e) {
+            txDate.addEventListener('keydown', e => {
                 if (e.key === 'Enter') addTransaction();
             });
         }
-        
-        if (txType) {
-            txType.addEventListener('change', updateCategorySelects);
-        }
+        if (txType) txType.addEventListener('change', updateCategorySelects);
 
         if (filterType) filterType.addEventListener('change', renderTransactions);
         if (filterCategory) filterCategory.addEventListener('change', renderTransactions);
@@ -1400,7 +1426,6 @@
         if (periodSelect) periodSelect.addEventListener('change', handlePeriodChange);
         if (applyCustomPeriod) applyCustomPeriod.addEventListener('click', applyCustomDates);
 
-        // === Начальный остаток ===
         if (setInitialBalanceBtn) {
             setInitialBalanceBtn.addEventListener('click', function() {
                 const value = parseFloat(initialBalanceInput.value);
@@ -1416,21 +1441,15 @@
             });
         }
 
-        // === Сортировка ===
-        if (sortSelect) {
-            sortSelect.addEventListener('change', handleSortChange);
-        }
+        if (sortSelect) sortSelect.addEventListener('change', handleSortChange);
 
-        // === Файловые операции ===
         if (menuSelectFolderBtn) {
-            menuSelectFolderBtn.textContent = 'Выбрать файл для автосохранения';
             menuSelectFolderBtn.addEventListener('click', selectFileForAutoSave);
         }
-        
         if (menuExportBtn) menuExportBtn.addEventListener('click', exportData);
         if (menuImportBtn) menuImportBtn.addEventListener('click', () => fileInput.click());
         if (fileInput) {
-            fileInput.addEventListener('change', function(e) {
+            fileInput.addEventListener('change', function() {
                 if (this.files && this.files[0]) {
                     importData(this.files[0]);
                     this.value = '';
@@ -1438,36 +1457,18 @@
             });
         }
 
+        // Проверка внешних изменений при возврате к вкладке
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') checkForExternalChanges();
+        });
+        window.addEventListener('focus', checkForExternalChanges);
+
+        // Попытка сохранить при уходе
         window.addEventListener('beforeunload', function() {
-            if (fileHandle) {
+            if (fileHandle && !isSaving) {
+                // Синхронный запрос невозможен, но try позволит отправить запись
                 saveToFile();
             }
-        });
-    }
-
-    // === Вкладки ===
-    if (tabBtns.length > 0) {
-        tabBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                // Убираем активный класс у всех кнопок
-                tabBtns.forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                
-                // Показываем соответствующий контент
-                const tabId = this.getAttribute('data-tab');
-                tabContents.forEach(content => {
-                    content.classList.remove('active');
-                    if (content.id === 'tab-' + tabId) {
-                        content.classList.add('active');
-                    }
-                });
-                
-                // Перерисовываем графики при переключении (для корректного отображения)
-                setTimeout(() => {
-                    if (tabId === 'dynamics') renderDynamicsChart();
-                    if (tabId === 'structure') renderStructureChart();
-                }, 50);
-            });
         });
     }
 
