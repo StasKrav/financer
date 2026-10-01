@@ -142,7 +142,7 @@
 
     <div class="grid">
         <!-- Left Column: Add Transaction + Stats -->
-        <div>
+        <div class="grid-column grid-column-left">
             <!-- Add Transaction -->
             <div class="card">
                 <div class="card-title">Добавить операцию</div>
@@ -208,13 +208,13 @@
                     </div>
                     
                     <div class="tab-content" id="tab-dynamics">
-                        <div style="height: 250px;">
+                        <div class="chart-wrapper">
                             <canvas id="dynamicsChart"></canvas>
                         </div>
                     </div>
                     
                     <div class="tab-content" id="tab-structure">
-                        <div style="height: 250px;">
+                        <div class="chart-wrapper">
                             <canvas id="structureChart"></canvas>
                         </div>
                     </div>
@@ -223,7 +223,7 @@
         </div>
 
         <!-- Right Column: Summary + Transactions -->
-        <div>
+        <div class="grid-column grid-column-right">
             <div class="card">
                 <div class="card-title">Сводка</div>
                 

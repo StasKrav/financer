@@ -550,7 +550,7 @@ body {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5rem;
-    align-items: start;
+    /* align-items: start; */
 }
 
 @media (max-width: 768px) {
@@ -575,10 +575,6 @@ body {
 }
 
 /* Stats Card */
-.stats-card {
-    margin-top: 1.5rem;
-}
-
 .stats-details {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1053,4 +1049,18 @@ input:focus, select:focus {
         padding: 0.3rem 0.5rem;
     }
 }
+
+.grid-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-height: 0; /* важно для корректной работы flex внутри grid */
+}
+
+/* Последняя карточка в колонке растягивается на всё свободное место */
+.grid-column > .card:last-child {
+    flex: 1;
+    min-height: 0; /* позволяет внутреннему overflow работать корректно */
+}
+
 
