@@ -718,7 +718,7 @@ input:focus, select:focus {
 
 /* Строка «Итого сейчас» — чуть выделяется */
 .summary-item-total {
-    background: #eef2f7;
+    background: #fff2f7 !important;
     border: 1px solid #d7dde5;
 }
 
@@ -1053,3 +1053,4 @@ input:focus, select:focus {
         padding: 0.3rem 0.5rem;
     }
 }
+
