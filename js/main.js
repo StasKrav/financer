@@ -1239,7 +1239,7 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                aspectRatio: 2, 
+                aspectRatio: 1.6, 
                 plugins: {
                     legend: {
                         position: 'right',

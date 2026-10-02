@@ -1,0 +1,31 @@
+/* Адаптация для мобильных */
+@media (max-width: 480px) {
+    .tabs {
+        gap: 0.15rem;
+        flex-wrap: wrap;
+    }
+    .tab-btn {
+        font-size: 0.7rem;
+        padding: 0.3rem 0.5rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+@media (max-width: 768px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+

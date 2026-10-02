@@ -550,13 +550,8 @@ body {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5rem;
-    /* align-items: start; */
-}
-
-@media (max-width: 768px) {
-    .grid {
-        grid-template-columns: 1fr;
-    }
+    height: calc(100vh - 120px); /* высота экрана минус header и отступы */
+    align-items: stretch;
 }
 
 .card {
@@ -698,18 +693,6 @@ input:focus, select:focus {
     grid-template-columns: repeat(4, 1fr);
     gap: 0.75rem;
     margin-bottom: 1rem;
-}
-
-@media (max-width: 900px) {
-    .summary-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 480px) {
-    .summary-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* Строка «Итого сейчас» — чуть выделяется */
@@ -897,11 +880,6 @@ input:focus, select:focus {
     font-size: 0.85rem;
 }
 
-.transaction-list {
-    max-height: 400px;
-    overflow-y: auto;
-}
-
 .empty-state {
     text-align: center;
     color: #9ca3af;
@@ -1038,17 +1016,6 @@ input:focus, select:focus {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Адаптация для мобильных */
-@media (max-width: 480px) {
-    .tabs {
-        gap: 0.15rem;
-        flex-wrap: wrap;
-    }
-    .tab-btn {
-        font-size: 0.7rem;
-        padding: 0.3rem 0.5rem;
-    }
-}
 
 .grid-column {
     display: flex;
@@ -1062,5 +1029,7 @@ input:focus, select:focus {
     flex: 1;
     min-height: 0; /* позволяет внутреннему overflow работать корректно */
 }
+
+
 
 
