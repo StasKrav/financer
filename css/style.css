@@ -735,9 +735,9 @@ input:focus, select:focus {
 
 /* Transactions */
 .transaction-list {
-    max-height: 400px;
     overflow-y: auto;
-    overflow-x: hidden; /* Явно отключаем горизонтальный скролл */
+    overflow-x: hidden;
+    min-height: 0;
 }
 
 .transaction-item {
@@ -1030,6 +1030,21 @@ input:focus, select:focus {
     min-height: 0; /* позволяет внутреннему overflow работать корректно */
 }
 
+/* Правая карточка — flex-колонка, чтобы список растягивался, а подсказка была прижата к низу */
+.card-tx {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
 
+.card-tx .transaction-list {
+    flex: 1;
+    min-height: 0;
+}
+
+.card-tx .hint-text {
+    flex-shrink: 0;
+}
 
 
